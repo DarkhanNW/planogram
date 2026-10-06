@@ -115,7 +115,7 @@ def upload_photo(
     return client.post(
         "/shelf-photos",
         data={"store_id": fixture["store_id"], "fixture_id": fixture["id"], "bay": str(bay)},
-        files={"image": ("bay.jpg", image or jpeg(size=(400, 300)), "image/jpeg")},
+        files={"image": ("bay.jpg", image or jpeg(size=(600, 400)), "image/jpeg")},
         headers=who,
     )
 

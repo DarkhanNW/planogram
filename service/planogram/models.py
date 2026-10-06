@@ -1,7 +1,7 @@
 from datetime import datetime
 from enum import Enum
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, model_validator
 
 from planogram.geometry import Box
 
@@ -173,6 +173,26 @@ class BlockChange(Input):
     sku: str | None = None
     """The Product the Block is; set it to resolve an Unknown Product or correct a match."""
     facings: int | None = Field(default=None, ge=1)
+
+
+class NewProduct(Input):
+    sku: str = Field(min_length=1, max_length=100)
+    name: str = Field(min_length=1, max_length=200)
+
+
+class Resolution(Input):
+    """How to resolve an Unknown Product: give exactly one of the two."""
+
+    new_product: NewProduct | None = None
+    """Create this Product, with the Block's crop as its reference image."""
+    existing_sku: str | None = None
+    """Add the Block's crop as a reference image of this existing Product."""
+
+    @model_validator(mode="after")
+    def exactly_one(self) -> "Resolution":
+        if (self.new_product is None) == (self.existing_sku is None):
+            raise ValueError("Give exactly one of new_product or existing_sku")
+        return self
 
 
 class BlockIn(Input):

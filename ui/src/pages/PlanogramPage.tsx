@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { api, ApiError, type BayLayout, type Block, type Planogram, type Product } from '../api'
+import AuthImage from '../AuthImage'
 import BoxedPhoto from '../BoxedPhoto'
 import { errorText, useAsync } from '../useAsync'
 
@@ -55,10 +56,22 @@ export default function PlanogramPage({ id }: { id: string }) {
         {editable && <button className="primary" onClick={approve}>Approve</button>}
         {error && <p className="error">{error}</p>}
         {unresolved.length > 0 && (
-          <p>
-            {unresolved.length} Unknown Product{unresolved.length > 1 ? 's' : ''} still need resolving: choose the Product
-            for each one marked below, or add it to the catalogue from its crop.
-          </p>
+          <div>
+            <p>
+              Approval needs every Unknown Product resolved. Probably the Product is missing from the catalogue: add it
+              from its crop, or add the crop to the Product it really is.
+            </p>
+            <ul>
+              {unresolved.map((u) => (
+                <li key={u.block_id}>
+                  Bay {u.bay}, Shelf {u.shelf}, position {u.position + 1}{' '}
+                  <button className="small" onClick={() => document.getElementById(`block-${u.block_id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })}>
+                    Resolve
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         )}
       </section>
       {p.bays.map((bay) => (
@@ -105,8 +118,11 @@ function BaySection({ planogram, bay, products, editable, edit, onCatalogueChang
               <h3>Shelf {shelf.number}</h3>
               <ol>
                 {shelf.blocks.map((b) => (
-                  <li key={b.id} onMouseEnter={() => setSelected(b.id)} onMouseLeave={() => setSelected(undefined)}>
-                    <BlockRow block={b} products={products} names={names} editable={editable} edit={edit} url={`${base}/blocks/${b.id}`} planogramId={planogram.id} bay={bay.bay} onCatalogueChange={onCatalogueChange} />
+                  <li key={b.id} id={`block-${b.id}`} onMouseEnter={() => setSelected(b.id)} onMouseLeave={() => setSelected(undefined)}>
+                    <BlockRow block={b} products={products} names={names} editable={editable} edit={edit} url={`${base}/blocks/${b.id}`} />
+                    {editable && b.unknown && b.box && (
+                      <ResolvePanel url={`${base}/blocks/${b.id}`} products={products} edit={edit} onCatalogueChange={onCatalogueChange} />
+                    )}
                   </li>
                 ))}
               </ol>
@@ -132,9 +148,38 @@ interface BlockRowProps {
   editable: boolean
   edit: (change: () => Promise<unknown>) => Promise<void>
   url: string
-  planogramId: string
-  bay: number
-  onCatalogueChange: () => void
+}
+
+/** Grow the catalogue from the shelf: a new Product from the crop, or the crop added to an existing one. */
+function ResolvePanel({ url, products, edit, onCatalogueChange }: { url: string; products: Product[]; edit: (change: () => Promise<unknown>) => Promise<void>; onCatalogueChange: () => void }) {
+  const [sku, setSku] = useState('')
+  const [name, setName] = useState('')
+  const [existing, setExisting] = useState('')
+
+  async function resolve(body: object) {
+    await edit(() => api.post(`${url}/resolve`, body))
+    onCatalogueChange()
+  }
+
+  return (
+    <div className="row" style={{ margin: '.4rem 0 .8rem' }}>
+      <AuthImage path={`${url}/crop`} className="thumb" />
+      <div>
+        <form className="inline" onSubmit={(e) => { e.preventDefault(); resolve({ new_product: { sku, name } }) }}>
+          <input placeholder="New SKU" value={sku} onChange={(e) => setSku(e.target.value)} required style={{ width: '7rem' }} />
+          <input placeholder="Name" value={name} onChange={(e) => setName(e.target.value)} required />
+          <button className="small">Add new Product</button>
+        </form>
+        <form className="inline" onSubmit={(e) => { e.preventDefault(); if (existing) resolve({ existing_sku: existing }) }}>
+          <select value={existing} onChange={(e) => setExisting(e.target.value)}>
+            <option value="">It is an existing Product…</option>
+            {products.map((p) => <option key={p.sku} value={p.sku}>{p.name} ({p.sku})</option>)}
+          </select>
+          <button className="small" disabled={!existing}>Add crop as reference image</button>
+        </form>
+      </div>
+    </div>
+  )
 }
 
 function BlockRow({ block, products, names, editable, edit, url }: BlockRowProps) {

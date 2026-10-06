@@ -7,6 +7,7 @@ import numpy as np
 from planogram.blurring import blur_people
 from planogram.context import Context
 from planogram.errors import Conflict, Invalid, NotFound
+from planogram.geometry import Box
 from planogram.models import ShelfPhoto
 from planogram.repository import new_id
 
@@ -59,6 +60,15 @@ def shelf_photo_bytes(ctx: Context, photo: ShelfPhoto) -> bytes:
 
 def load_shelf_photo_image(ctx: Context, photo: ShelfPhoto) -> np.ndarray:
     return decode_image(shelf_photo_bytes(ctx, photo))
+
+
+def crop_shelf_photo(ctx: Context, photo: ShelfPhoto, box: Box) -> bytes:
+    """A JPEG of one region of the (blurred) Shelf Photo."""
+    image = load_shelf_photo_image(ctx, photo)
+    region = box.clipped(image.shape[1], image.shape[0])
+    if region is None:
+        raise Invalid("The region is outside the Shelf Photo")
+    return encode_jpeg(image[region.y : region.bottom, region.x : region.right])
 
 
 def delete_shelf_photo(ctx: Context, photo: ShelfPhoto) -> None:

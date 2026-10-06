@@ -4,7 +4,8 @@ from planogram.access import Actor
 from planogram.context import Context
 from planogram.errors import Conflict, Invalid, NotFound
 from planogram.geometry import Box
-from planogram.models import Block, BayLayout, Planogram, PlanogramStatus, Shelf
+from planogram.models import Block, BayLayout, Planogram, PlanogramStatus, Resolution, Shelf
+from planogram.photos import crop_shelf_photo, get_shelf_photo
 from planogram.repository import new_id
 
 
@@ -77,6 +78,45 @@ def insert_block(
         shelf = Shelf(number=shelf_number, blocks=[])
         layout.shelves = sorted(layout.shelves + [shelf], key=lambda s: s.number)
     shelf.blocks.insert(min(position, len(shelf.blocks)), Block(id=new_id(), sku=sku, facings=facings))
+    return _save(ctx, draft, layout, shelf)
+
+
+def block_crop(ctx: Context, planogram_id: str, bay: int, block_id: str) -> bytes:
+    """The part of the Shelf Photo a Block was extracted from."""
+    planogram = get_planogram(ctx, planogram_id)
+    layout = planogram.bay(bay)
+    if layout is None:
+        raise NotFound(f"The Planogram has no Bay {bay}")
+    shelf, index = _find_block(layout, block_id)
+    box = shelf.blocks[index].box
+    if box is None or layout.shelf_photo_id is None:
+        raise NotFound("The Block was not extracted from a Shelf Photo")
+    return crop_shelf_photo(ctx, get_shelf_photo(ctx, layout.shelf_photo_id), box)
+
+
+def resolve_unknown(ctx: Context, planogram_id: str, bay: int, block_id: str, resolution: Resolution) -> Planogram:
+    """Resolves an Unknown Product Block from the shelf itself: one Facing's crop becomes a
+    reference image of a new or existing Product, and the Block becomes that Product."""
+    draft, layout = _draft_bay(ctx, planogram_id, bay)
+    shelf, index = _find_block(layout, block_id)
+    block = shelf.blocks[index]
+    if not block.unknown:
+        raise Conflict("Only an Unknown Product can be resolved from its crop")
+    if block.box is None or layout.shelf_photo_id is None:
+        raise Conflict("The Block was not extracted from a Shelf Photo, so it has no crop")
+    one_facing = block.box.model_copy(update={"w": max(1, block.box.w // block.facings)})
+    crop = crop_shelf_photo(ctx, get_shelf_photo(ctx, layout.shelf_photo_id), one_facing)
+
+    if resolution.new_product is not None:
+        sku = resolution.new_product.sku
+        if ctx.repo.get_product(sku) is not None:
+            raise Conflict(f"A Product with SKU {sku} already exists; add the crop to it instead")
+        ctx.repo.upsert_product(sku, resolution.new_product.name)
+    else:
+        sku = resolution.existing_sku or ""
+        _require_product(ctx, sku)
+    ctx.repo.add_reference_image(sku, ctx.images.put(crop))
+    shelf.blocks[index] = block.model_copy(update={"sku": sku})
     return _save(ctx, draft, layout, shelf)
 
 
