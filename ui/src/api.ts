@@ -131,6 +131,50 @@ export interface Box {
   h: number
 }
 
+export interface Block {
+  id: string
+  sku: string | null
+  facings: number
+  box: Box | null
+  unknown: boolean
+}
+
+export interface Shelf {
+  number: number
+  blocks: Block[]
+}
+
+export interface BayLayout {
+  bay: number
+  shelf_photo_id: string | null
+  shelves: Shelf[]
+}
+
+export type PlanogramStatus = 'Draft' | 'Approved' | 'Superseded'
+
+export interface Planogram {
+  id: string
+  fixture_id: string
+  status: PlanogramStatus
+  created_at: string
+  approved_by: string | null
+  approved_at: string | null
+  superseded_at: string | null
+  bays: BayLayout[]
+}
+
+export interface Job {
+  id: string
+  kind: 'extraction' | 'compliance_check'
+  status: 'queued' | 'running' | 'done' | 'failed'
+  shelf_photo_id: string
+  submitted_by: string
+  submitted_at: string
+  result_id: string | null
+  result_url: string | null
+  error: string | null
+}
+
 export interface ImportReport {
   created: string[]
   updated: string[]

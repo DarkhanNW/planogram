@@ -1,6 +1,9 @@
 from datetime import datetime
+from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field, computed_field
+
+from planogram.geometry import Box
 
 
 class Store(BaseModel):
@@ -80,3 +83,87 @@ class ImportReport(BaseModel):
     created: list[str]
     updated: list[str]
     failed: list[ImportFailure]
+
+
+class Block(BaseModel):
+    """A run of adjacent Facings of one Product (or an Unknown Product) on a Shelf."""
+
+    id: str
+    sku: str | None
+    facings: int
+    box: Box | None = None
+    """Where the Block is in the Shelf Photo it was extracted from; None for inserted Blocks."""
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def unknown(self) -> bool:
+        return self.sku is None
+
+
+class Shelf(BaseModel):
+    number: int
+    """Counted from the bottom: 1 is the bottom Shelf."""
+    blocks: list[Block]
+    """In order from the left."""
+
+
+class BayLayout(BaseModel):
+    bay: int
+    shelf_photo_id: str | None
+    shelves: list[Shelf]
+
+
+class PlanogramStatus(str, Enum):
+    DRAFT = "Draft"
+    APPROVED = "Approved"
+    SUPERSEDED = "Superseded"
+
+
+class Planogram(BaseModel):
+    id: str
+    fixture_id: str
+    status: PlanogramStatus
+    created_at: datetime
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    superseded_at: datetime | None = None
+    bays: list[BayLayout]
+
+    def bay(self, number: int) -> BayLayout | None:
+        return next((b for b in self.bays if b.bay == number), None)
+
+
+class JobKind(str, Enum):
+    EXTRACTION = "extraction"
+    COMPLIANCE_CHECK = "compliance_check"
+
+
+class JobStatus(str, Enum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    DONE = "done"
+    FAILED = "failed"
+
+
+class Job(BaseModel):
+    id: str
+    kind: JobKind
+    status: JobStatus
+    shelf_photo_id: str
+    submitted_by: str
+    submitted_at: datetime
+    result_id: str | None = None
+    error: str | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def result_url(self) -> str | None:
+        """The Draft Planogram or Compliance Check, once the job is done."""
+        if self.result_id is None:
+            return None
+        collection = "planograms" if self.kind == JobKind.EXTRACTION else "compliance-checks"
+        return f"/{collection}/{self.result_id}"
+
+
+class ExtractionIn(Input):
+    shelf_photo_id: str

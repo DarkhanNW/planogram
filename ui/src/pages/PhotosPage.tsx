@@ -1,13 +1,17 @@
 import { useState, type FormEvent } from 'react'
-import { api, type ShelfPhoto } from '../api'
+import { api, type Job, type ShelfPhoto } from '../api'
 import AuthImage from '../AuthImage'
 import FixturePicker, { type Selection } from '../FixturePicker'
+import { waitForJob } from '../jobs'
+import { useNav } from '../nav'
 import { errorText, useAsync } from '../useAsync'
 
 export default function PhotosPage() {
   const [selection, setSelection] = useState<Selection>({})
   const [file, setFile] = useState<File | null>(null)
   const [error, setError] = useState<string>()
+  const [status, setStatus] = useState<string>()
+  const nav = useNav()
   const fixtureId = selection.fixture?.id
   const photos = useAsync(
     () => (fixtureId ? api.get<ShelfPhoto[]>(`/shelf-photos?fixture_id=${fixtureId}`) : Promise.resolve([])),
@@ -27,6 +31,21 @@ export default function PhotosPage() {
       setError(undefined)
       photos.reload()
     } catch (err) {
+      setError(errorText(err))
+    }
+  }
+
+  async function submit(photo: ShelfPhoto) {
+    try {
+      setStatus('Extraction queued…')
+      const job = await waitForJob(await api.post<Job>('/extractions', { shelf_photo_id: photo.id }), (j) =>
+        setStatus(`Extraction ${j.status}…`),
+      )
+      if (job.status === 'failed' || !job.result_id) throw new Error(job.error ?? 'Extraction failed')
+      setStatus(undefined)
+      nav({ page: 'planogram', id: job.result_id })
+    } catch (err) {
+      setStatus(undefined)
       setError(errorText(err))
     }
   }
@@ -51,6 +70,7 @@ export default function PhotosPage() {
           <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} required />
           <button className="primary" disabled={!selection.bay}>Upload</button>
         </form>
+        {status && <p>{status}</p>}
         {(error || photos.error) && <p className="error">{error ?? photos.error}</p>}
       </section>
       {photos.data?.map((photo) => (
@@ -58,6 +78,7 @@ export default function PhotosPage() {
           <div className="inline">
             <strong>Bay {photo.bay}</strong>
             <span className="muted">uploaded {new Date(photo.uploaded_at).toLocaleString()} by {photo.uploaded_by}</span>
+            <button className="small" onClick={() => submit(photo)} disabled={!photo.image_url || !!status}>Extract Draft Planogram</button>
             <button className="danger small" onClick={() => remove(photo)} disabled={!photo.image_url}>Delete</button>
           </div>
           {photo.image_url ? <AuthImage path={photo.image_url} style={{ maxWidth: '100%' }} /> : <p className="muted">Image deleted.</p>}

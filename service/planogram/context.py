@@ -6,6 +6,8 @@ from fastapi import Request
 
 from planogram.blurring import PersonBlurrer
 from planogram.images import ImageStore
+from planogram.jobs import JobRunner
+from planogram.recognition import Recognizer
 from planogram.repository import Repository
 from planogram.settings import Settings
 
@@ -20,6 +22,8 @@ class Context:
     repo: Repository
     images: ImageStore
     blurrer: PersonBlurrer
+    recognizer: Recognizer
+    jobs: JobRunner
     clock: Clock
 
 

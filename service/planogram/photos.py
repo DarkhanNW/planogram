@@ -6,34 +6,31 @@ import numpy as np
 
 from planogram.blurring import blur_people
 from planogram.context import Context
+from planogram.errors import Conflict, Invalid, NotFound
 from planogram.models import ShelfPhoto
 from planogram.repository import new_id
-
-
-class InvalidPhoto(ValueError):
-    pass
 
 
 def decode_image(data: bytes) -> np.ndarray:
     image = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_COLOR)
     if image is None:
-        raise InvalidPhoto("The file is not a readable image")
+        raise Invalid("The file is not a readable image")
     return image
 
 
 def encode_jpeg(image: np.ndarray) -> bytes:
     ok, encoded = cv2.imencode(".jpg", image, [cv2.IMWRITE_JPEG_QUALITY, 92])
     if not ok:
-        raise InvalidPhoto("The image could not be encoded")
+        raise Invalid("The image could not be encoded")
     return encoded.tobytes()
 
 
 def ingest_shelf_photo(ctx: Context, store_id: str, fixture_id: str, bay: int, data: bytes, uploaded_by: str) -> ShelfPhoto:
     fixture = ctx.repo.get_fixture(fixture_id)
     if fixture is None or fixture.store_id != store_id:
-        raise InvalidPhoto("The Fixture is not in that Store")
+        raise Invalid("The Fixture is not in that Store")
     if bay not in fixture.bays:
-        raise InvalidPhoto(f"{fixture.name} has Bays {fixture.bays[0]} to {fixture.bays[-1]}")
+        raise Invalid(f"{fixture.name} has Bays {fixture.bays[0]} to {fixture.bays[-1]}")
 
     original = decode_image(data)
     blurred = blur_people(original, ctx.blurrer.find_people(original))
@@ -45,6 +42,23 @@ def ingest_shelf_photo(ctx: Context, store_id: str, fixture_id: str, bay: int, d
     )
     ctx.repo.add_shelf_photo(photo)
     return photo
+
+
+def get_shelf_photo(ctx: Context, photo_id: str) -> ShelfPhoto:
+    photo = ctx.repo.get_shelf_photo(photo_id)
+    if photo is None:
+        raise NotFound("Shelf Photo not found")
+    return photo
+
+
+def shelf_photo_bytes(ctx: Context, photo: ShelfPhoto) -> bytes:
+    if photo.image_key is None:
+        raise Conflict("The Shelf Photo image has been deleted")
+    return ctx.images.get(photo.image_key)
+
+
+def load_shelf_photo_image(ctx: Context, photo: ShelfPhoto) -> np.ndarray:
+    return decode_image(shelf_photo_bytes(ctx, photo))
 
 
 def delete_shelf_photo(ctx: Context, photo: ShelfPhoto) -> None:

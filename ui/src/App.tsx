@@ -1,19 +1,36 @@
 import { useState } from 'react'
 import { loadIdentity, setIdentity, type Identity, type Role } from './api'
+import { NavContext, type Route } from './nav'
 import CataloguePage from './pages/CataloguePage'
 import PhotosPage from './pages/PhotosPage'
+import PlanogramPage from './pages/PlanogramPage'
+import PlanogramsPage from './pages/PlanogramsPage'
 import StoresPage from './pages/StoresPage'
 
-const PAGES = {
-  stores: { label: 'Stores & Fixtures', render: () => <StoresPage /> },
-  catalogue: { label: 'Product Catalogue', render: () => <CataloguePage /> },
-  photos: { label: 'Shelf Photos', render: () => <PhotosPage /> },
-} as const
+const TABS: { route: Route; label: string }[] = [
+  { route: { page: 'stores' }, label: 'Stores & Fixtures' },
+  { route: { page: 'catalogue' }, label: 'Product Catalogue' },
+  { route: { page: 'photos' }, label: 'Shelf Photos' },
+  { route: { page: 'planograms' }, label: 'Planograms' },
+]
 
-type PageKey = keyof typeof PAGES
+function render(route: Route) {
+  switch (route.page) {
+    case 'stores':
+      return <StoresPage />
+    case 'catalogue':
+      return <CataloguePage />
+    case 'photos':
+      return <PhotosPage />
+    case 'planograms':
+      return <PlanogramsPage />
+    case 'planogram':
+      return <PlanogramPage id={route.id} />
+  }
+}
 
 export default function App() {
-  const [page, setPage] = useState<PageKey>('stores')
+  const [route, setRoute] = useState<Route>({ page: 'stores' })
   const [identity, setLocalIdentity] = useState<Identity>(loadIdentity)
   const [version, setVersion] = useState(0)
 
@@ -24,14 +41,19 @@ export default function App() {
     setVersion((v) => v + 1)
   }
 
+  function navigate(next: Route) {
+    setRoute(next)
+    setVersion((v) => v + 1)
+  }
+
   return (
-    <>
+    <NavContext.Provider value={navigate}>
       <header>
         <h1>Planogram</h1>
         <nav>
-          {(Object.keys(PAGES) as PageKey[]).map((key) => (
-            <button key={key} className={key === page ? 'active' : ''} onClick={() => setPage(key)}>
-              {PAGES[key].label}
+          {TABS.map((tab) => (
+            <button key={tab.label} className={tab.route.page === route.page ? 'active' : ''} onClick={() => navigate(tab.route)}>
+              {tab.label}
             </button>
           ))}
         </nav>
@@ -45,7 +67,7 @@ export default function App() {
           </select>
         </div>
       </header>
-      <main key={`${page}-${version}`}>{PAGES[page].render()}</main>
-    </>
+      <main key={version}>{render(route)}</main>
+    </NavContext.Provider>
   )
 }

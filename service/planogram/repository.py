@@ -8,7 +8,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from planogram.models import Fixture, Product, ReferenceImage, ShelfPhoto, Store
+from planogram.models import (
+    Fixture,
+    Job,
+    Planogram,
+    PlanogramStatus,
+    Product,
+    ReferenceImage,
+    ShelfPhoto,
+    Store,
+)
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stores (
@@ -42,6 +51,18 @@ CREATE TABLE IF NOT EXISTS shelf_photos (
     width INTEGER NOT NULL,
     height INTEGER NOT NULL,
     image_key TEXT
+);
+CREATE TABLE IF NOT EXISTS planograms (
+    id TEXT PRIMARY KEY,
+    fixture_id TEXT NOT NULL REFERENCES fixtures(id),
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    document TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS planograms_by_fixture ON planograms(fixture_id, status);
+CREATE TABLE IF NOT EXISTS jobs (
+    id TEXT PRIMARY KEY,
+    document TEXT NOT NULL
 );
 """
 
@@ -153,6 +174,38 @@ class Repository:
 
     def clear_shelf_photo_image(self, photo_id: str) -> None:
         self._run("UPDATE shelf_photos SET image_key = NULL WHERE id = ?", photo_id)
+
+    # Planograms: each is stored whole as a JSON document, indexed by Fixture and status.
+
+    def save_planogram(self, planogram: Planogram) -> None:
+        self._run(
+            "INSERT OR REPLACE INTO planograms VALUES (?, ?, ?, ?, ?)",
+            planogram.id, planogram.fixture_id, planogram.status.value,
+            planogram.created_at.isoformat(), planogram.model_dump_json(),
+        )
+
+    def get_planogram(self, planogram_id: str) -> Planogram | None:
+        r = self._one("SELECT document FROM planograms WHERE id = ?", planogram_id)
+        return Planogram.model_validate_json(r["document"]) if r else None
+
+    def list_planograms(self, fixture_id: str, status: PlanogramStatus | None = None) -> list[Planogram]:
+        """Newest first."""
+        sql = "SELECT document FROM planograms WHERE fixture_id = ?"
+        params: list[Any] = [fixture_id]
+        if status is not None:
+            sql += " AND status = ?"
+            params.append(status.value)
+        rows = self._all(sql + " ORDER BY created_at DESC, rowid DESC", *params)
+        return [Planogram.model_validate_json(r["document"]) for r in rows]
+
+    # Jobs
+
+    def save_job(self, job: Job) -> None:
+        self._run("INSERT OR REPLACE INTO jobs VALUES (?, ?)", job.id, job.model_dump_json())
+
+    def get_job(self, job_id: str) -> Job | None:
+        r = self._one("SELECT document FROM jobs WHERE id = ?", job_id)
+        return Job.model_validate_json(r["document"]) if r else None
 
 
 def _shelf_photo(r: sqlite3.Row) -> ShelfPhoto:

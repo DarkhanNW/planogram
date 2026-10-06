@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 
 from planogram.app import create_app
 from planogram.geometry import Box
+from planogram.jobs import InlineJobRunner
+from planogram.models import Product
+from planogram.recognition import EmptyRegion, RecognizedFacing, Recognition
 from planogram.settings import Settings
 
 API_KEY = "test-service-key"
@@ -47,11 +50,56 @@ def blurrer() -> FakePersonBlurrer:
     return FakePersonBlurrer()
 
 
+class FakeRecognizer:
+    """Returns the scripted Recognition for every photo; set ``result`` before submitting."""
+
+    def __init__(self) -> None:
+        self.result = Recognition(facings=[], empty_regions=[])
+        self.error: Exception | None = None
+        self.calls: list[tuple[list[str], list[str]]] = []
+
+    def recognize(self, image: np.ndarray, candidates: list[Product], fallback: list[Product]) -> Recognition:
+        self.calls.append(([p.sku for p in candidates], [p.sku for p in fallback]))
+        if self.error:
+            raise self.error
+        return self.result
+
+
 @pytest.fixture
-def client(settings: Settings, blurrer: FakePersonBlurrer) -> Iterator[TestClient]:
-    app = create_app(settings, blurrer=blurrer)
+def recognizer() -> FakeRecognizer:
+    return FakeRecognizer()
+
+
+@pytest.fixture
+def client(settings: Settings, blurrer: FakePersonBlurrer, recognizer: FakeRecognizer) -> Iterator[TestClient]:
+    app = create_app(settings, blurrer=blurrer, recognizer=recognizer, jobs=InlineJobRunner())
     with TestClient(app) as c:
         yield c
+
+
+FACING_WIDTH = 50
+SHELF_HEIGHT = 100
+
+
+def shelf_row(shelf: int, *skus: str | None, confidence: float = 0.95, start: int = 0) -> list[RecognizedFacing]:
+    """Facings side by side on a Shelf (counted from the bottom of a 4-Shelf Bay), left to right.
+    ``None`` is a Facing the Recognizer could not match: an Unknown Product."""
+    top = (4 - shelf) * SHELF_HEIGHT
+    return [
+        RecognizedFacing(
+            sku=sku, shelf=shelf, confidence=confidence,
+            box=Box(x=(start + i) * FACING_WIDTH, y=top, w=FACING_WIDTH, h=SHELF_HEIGHT),
+        )
+        for i, sku in enumerate(skus)
+    ]
+
+
+def empty(shelf: int, start: int, facings: int, confidence: float = 0.95) -> EmptyRegion:
+    top = (4 - shelf) * SHELF_HEIGHT
+    return EmptyRegion(
+        shelf=shelf, confidence=confidence,
+        box=Box(x=start * FACING_WIDTH, y=top, w=facings * FACING_WIDTH, h=SHELF_HEIGHT),
+    )
 
 
 def register_fixture(client: TestClient, bay_count: int = 4) -> dict[str, str]:

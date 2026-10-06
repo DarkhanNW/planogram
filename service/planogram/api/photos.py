@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from planogram.access import AnyRole, ManagerRole, OperatorRole
 from planogram.context import Context, get_context
 from planogram.models import ShelfPhoto
-from planogram.photos import InvalidPhoto, delete_shelf_photo, ingest_shelf_photo
+from planogram.photos import delete_shelf_photo, get_shelf_photo, ingest_shelf_photo
 
 router = APIRouter(tags=["Shelf Photos"])
 Ctx = Annotated[Context, Depends(get_context)]
@@ -23,10 +23,7 @@ async def upload(
 ) -> ShelfPhoto:
     """Uploads a Shelf Photo of one whole Bay. People in it are blurred before it is stored;
     the original is never kept."""
-    try:
-        return ingest_shelf_photo(ctx, store_id, fixture_id, bay, await image.read(), actor.user_id)
-    except InvalidPhoto as e:
-        raise HTTPException(422, str(e))
+    return ingest_shelf_photo(ctx, store_id, fixture_id, bay, await image.read(), actor.user_id)
 
 
 @router.get("/shelf-photos")
@@ -35,13 +32,13 @@ def list_shelf_photos(fixture_id: str, _: AnyRole, ctx: Ctx) -> list[ShelfPhoto]
 
 
 @router.get("/shelf-photos/{photo_id}")
-def get_shelf_photo(photo_id: str, _: AnyRole, ctx: Ctx) -> ShelfPhoto:
-    return _photo(ctx, photo_id)
+def get(photo_id: str, _: AnyRole, ctx: Ctx) -> ShelfPhoto:
+    return get_shelf_photo(ctx, photo_id)
 
 
 @router.get("/shelf-photos/{photo_id}/image", response_class=Response)
-def get_shelf_photo_image(photo_id: str, _: AnyRole, ctx: Ctx) -> Response:
-    photo = _photo(ctx, photo_id)
+def get_image(photo_id: str, _: AnyRole, ctx: Ctx) -> Response:
+    photo = get_shelf_photo(ctx, photo_id)
     if photo.image_key is None:
         raise HTTPException(404, "The Shelf Photo image has been deleted")
     return Response(ctx.images.get(photo.image_key), media_type="image/jpeg")
@@ -49,11 +46,4 @@ def get_shelf_photo_image(photo_id: str, _: AnyRole, ctx: Ctx) -> Response:
 
 @router.delete("/shelf-photos/{photo_id}", status_code=204)
 def delete(photo_id: str, _: ManagerRole, ctx: Ctx) -> None:
-    delete_shelf_photo(ctx, _photo(ctx, photo_id))
-
-
-def _photo(ctx: Context, photo_id: str) -> ShelfPhoto:
-    photo = ctx.repo.get_shelf_photo(photo_id)
-    if photo is None:
-        raise HTTPException(404, "Shelf Photo not found")
-    return photo
+    delete_shelf_photo(ctx, get_shelf_photo(ctx, photo_id))
