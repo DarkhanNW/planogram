@@ -1,10 +1,15 @@
+from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from fastapi import Request
 
+from planogram.blurring import PersonBlurrer
 from planogram.images import ImageStore
 from planogram.repository import Repository
 from planogram.settings import Settings
+
+Clock = Callable[[], datetime]
 
 
 @dataclass
@@ -14,6 +19,8 @@ class Context:
     settings: Settings
     repo: Repository
     images: ImageStore
+    blurrer: PersonBlurrer
+    clock: Clock
 
 
 def get_context(request: Request) -> Context:

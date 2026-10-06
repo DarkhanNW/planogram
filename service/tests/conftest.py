@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from planogram.app import create_app
+from planogram.geometry import Box
 from planogram.settings import Settings
 
 API_KEY = "test-service-key"
@@ -31,11 +32,44 @@ def settings(tmp_path: Path) -> Settings:
     )
 
 
+class FakePersonBlurrer:
+    """Reports the scripted person boxes for every photo."""
+
+    def __init__(self) -> None:
+        self.people: list[Box] = []
+
+    def find_people(self, image: np.ndarray) -> list[Box]:
+        return list(self.people)
+
+
 @pytest.fixture
-def client(settings: Settings) -> Iterator[TestClient]:
-    app = create_app(settings)
+def blurrer() -> FakePersonBlurrer:
+    return FakePersonBlurrer()
+
+
+@pytest.fixture
+def client(settings: Settings, blurrer: FakePersonBlurrer) -> Iterator[TestClient]:
+    app = create_app(settings, blurrer=blurrer)
     with TestClient(app) as c:
         yield c
+
+
+def register_fixture(client: TestClient, bay_count: int = 4) -> dict[str, str]:
+    store = client.post("/stores", json={"name": "Kensington"}, headers=MANAGER).json()
+    return client.post(
+        f"/stores/{store['id']}/fixtures", json={"name": "Drinks", "bay_count": bay_count}, headers=MANAGER
+    ).json()
+
+
+def upload_photo(
+    client: TestClient, fixture: dict[str, str], bay: int = 1, image: bytes | None = None, who: dict[str, str] = OPERATOR
+) -> httpx.Response:
+    return client.post(
+        "/shelf-photos",
+        data={"store_id": fixture["store_id"], "fixture_id": fixture["id"], "bay": str(bay)},
+        files={"image": ("bay.jpg", image or jpeg(size=(400, 300)), "image/jpeg")},
+        headers=who,
+    )
 
 
 def import_catalogue(

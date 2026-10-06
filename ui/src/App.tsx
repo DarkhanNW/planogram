@@ -1,11 +1,13 @@
 import { useState } from 'react'
 import { loadIdentity, setIdentity, type Identity, type Role } from './api'
 import CataloguePage from './pages/CataloguePage'
+import PhotosPage from './pages/PhotosPage'
 import StoresPage from './pages/StoresPage'
 
 const PAGES = {
   stores: { label: 'Stores & Fixtures', render: () => <StoresPage /> },
   catalogue: { label: 'Product Catalogue', render: () => <CataloguePage /> },
+  photos: { label: 'Shelf Photos', render: () => <PhotosPage /> },
 } as const
 
 type PageKey = keyof typeof PAGES

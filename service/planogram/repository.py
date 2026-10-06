@@ -4,10 +4,11 @@ be swapped (e.g. Postgres) without touching it."""
 import sqlite3
 import threading
 import uuid
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from planogram.models import Fixture, Product, ReferenceImage, Store
+from planogram.models import Fixture, Product, ReferenceImage, ShelfPhoto, Store
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stores (
@@ -30,6 +31,17 @@ CREATE TABLE IF NOT EXISTS reference_images (
     id TEXT PRIMARY KEY,
     sku TEXT NOT NULL REFERENCES products(sku),
     image_key TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS shelf_photos (
+    id TEXT PRIMARY KEY,
+    store_id TEXT NOT NULL REFERENCES stores(id),
+    fixture_id TEXT NOT NULL REFERENCES fixtures(id),
+    bay INTEGER NOT NULL,
+    uploaded_by TEXT NOT NULL,
+    uploaded_at TEXT NOT NULL,
+    width INTEGER NOT NULL,
+    height INTEGER NOT NULL,
+    image_key TEXT
 );
 """
 
@@ -121,6 +133,34 @@ class Repository:
             return None
         images = self._all("SELECT * FROM reference_images WHERE sku = ? ORDER BY rowid", sku)
         return Product(sku=r["sku"], name=r["name"], reference_images=[_reference_image(i) for i in images])
+
+    # Shelf Photos
+
+    def add_shelf_photo(self, photo: ShelfPhoto) -> None:
+        self._run(
+            "INSERT INTO shelf_photos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            photo.id, photo.store_id, photo.fixture_id, photo.bay, photo.uploaded_by,
+            photo.uploaded_at.isoformat(), photo.width, photo.height, photo.image_key,
+        )
+
+    def get_shelf_photo(self, photo_id: str) -> ShelfPhoto | None:
+        r = self._one("SELECT * FROM shelf_photos WHERE id = ?", photo_id)
+        return _shelf_photo(r) if r else None
+
+    def list_shelf_photos(self, fixture_id: str) -> list[ShelfPhoto]:
+        rows = self._all("SELECT * FROM shelf_photos WHERE fixture_id = ? ORDER BY uploaded_at DESC", fixture_id)
+        return [_shelf_photo(r) for r in rows]
+
+    def clear_shelf_photo_image(self, photo_id: str) -> None:
+        self._run("UPDATE shelf_photos SET image_key = NULL WHERE id = ?", photo_id)
+
+
+def _shelf_photo(r: sqlite3.Row) -> ShelfPhoto:
+    return ShelfPhoto(
+        id=r["id"], store_id=r["store_id"], fixture_id=r["fixture_id"], bay=r["bay"],
+        uploaded_by=r["uploaded_by"], uploaded_at=datetime.fromisoformat(r["uploaded_at"]),
+        width=r["width"], height=r["height"], image_key=r["image_key"],
+    )
 
 
 def _reference_image(r: sqlite3.Row) -> ReferenceImage:

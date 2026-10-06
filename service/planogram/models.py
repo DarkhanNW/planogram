@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
@@ -48,6 +50,24 @@ class Product(BaseModel):
     sku: str
     name: str
     reference_images: list[ReferenceImage] = []
+
+
+class ShelfPhoto(BaseModel):
+    id: str
+    store_id: str
+    fixture_id: str
+    bay: int
+    uploaded_by: str
+    uploaded_at: datetime
+    width: int
+    height: int
+    image_key: str | None = Field(default=None, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def image_url(self) -> str | None:
+        """None once the photo has been deleted, on request or by the retention sweep."""
+        return f"/shelf-photos/{self.id}/image" if self.image_key else None
 
 
 class ImportFailure(BaseModel):

@@ -112,6 +112,25 @@ export interface Product {
   reference_images: ReferenceImage[]
 }
 
+export interface ShelfPhoto {
+  id: string
+  store_id: string
+  fixture_id: string
+  bay: number
+  uploaded_by: string
+  uploaded_at: string
+  width: number
+  height: number
+  image_url: string | null
+}
+
+export interface Box {
+  x: number
+  y: number
+  w: number
+  h: number
+}
+
 export interface ImportReport {
   created: string[]
   updated: string[]
