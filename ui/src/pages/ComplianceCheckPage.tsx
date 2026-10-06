@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { api, type ComplianceCheck, type DeviationKind, type Position, type Product } from '../api'
 import BoxedPhoto from '../BoxedPhoto'
+import { percent } from '../format'
 import { useNav } from '../nav'
 import { useAsync } from '../useAsync'
 
@@ -10,10 +11,6 @@ function kindClass(kind: DeviationKind) {
 
 function position(p: Position | null) {
   return p ? `Shelf ${p.shelf}, Block ${p.order}, ×${p.facings}` : '—'
-}
-
-function percent(fraction: number | null) {
-  return fraction === null ? '—' : `${Math.round(fraction * 100)}%`
 }
 
 export default function ComplianceCheckPage({ id }: { id: string }) {

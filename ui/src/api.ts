@@ -223,3 +223,25 @@ export interface ComplianceCheck {
   /** Null once the Shelf Photo has been deleted. */
   annotated_photo_url: string | null
 }
+
+export interface ScorePoint {
+  check_id: string
+  bay: number
+  submitted_at: string
+  compliance_score: number | null
+  coverage: number
+  planogram_id: string
+}
+
+/** An approval that changed the planned layout of `bays`. */
+export interface PlanogramChange {
+  planogram_id: string
+  approved_at: string
+  bays: number[]
+}
+
+export interface ScoreHistory {
+  /** Oldest first. */
+  points: ScorePoint[]
+  planogram_changes: PlanogramChange[]
+}

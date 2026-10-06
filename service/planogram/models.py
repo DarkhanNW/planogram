@@ -277,3 +277,31 @@ class ComplianceCheck(BaseModel):
     def annotated_photo_url(self) -> str | None:
         """The Annotated Photo; None once its Shelf Photo has been deleted, as it shows the photo."""
         return f"/compliance-checks/{self.id}/annotated-photo" if self.annotated_photo_key else None
+
+
+class ScorePoint(BaseModel):
+    """One Compliance Check's figures in a score history."""
+
+    check_id: str
+    bay: int
+    submitted_at: datetime
+    compliance_score: float | None
+    coverage: float
+    planogram_id: str
+    """The Approved Planogram the check was measured against."""
+
+
+class PlanogramChange(BaseModel):
+    """An approval that changed the planned layout of one or more Bays."""
+
+    planogram_id: str
+    approved_at: datetime
+    bays: list[int]
+    """The Bays whose layout the approval changed, or first planned."""
+
+
+class ScoreHistory(BaseModel):
+    points: list[ScorePoint]
+    """Oldest first."""
+    planogram_changes: list[PlanogramChange]
+    """Oldest first; a score jump just after one may come from the new layout, not the shelf."""

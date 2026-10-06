@@ -6,7 +6,7 @@ import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS jobs (
 
 def new_id() -> str:
     return uuid.uuid4().hex
+
+
+def as_utc(t: datetime) -> datetime:
+    """``t`` in UTC; a time without a zone is taken to be UTC already."""
+    return t.replace(tzinfo=UTC) if t.tzinfo is None else t.astimezone(UTC)
 
 
 class Repository:
@@ -236,17 +241,37 @@ class Repository:
     def save_compliance_check(self, check: ComplianceCheck) -> None:
         self._run(
             "INSERT OR REPLACE INTO compliance_checks VALUES (?, ?, ?, ?, ?, ?)",
-            check.id, check.fixture_id, check.bay, check.submitted_at.isoformat(), check.model_dump_json(),
+            check.id, check.fixture_id, check.bay, _stored_time(check.submitted_at), check.model_dump_json(),
             check.annotated_photo_key,
         )
 
     def get_compliance_check(self, check_id: str) -> ComplianceCheck | None:
         r = self._one("SELECT document, annotated_photo_key FROM compliance_checks WHERE id = ?", check_id)
-        if r is None:
-            return None
-        check = ComplianceCheck.model_validate_json(r["document"])
-        check.annotated_photo_key = r["annotated_photo_key"]
-        return check
+        return _compliance_check(r) if r else None
+
+    def list_compliance_checks(
+        self,
+        store_id: str | None = None,
+        fixture_id: str | None = None,
+        bay: int | None = None,
+        since: datetime | None = None,
+        until: datetime | None = None,
+    ) -> list[ComplianceCheck]:
+        """Newest first. Each filter given narrows the list; ``since`` and ``until`` are inclusive."""
+        sql = "SELECT document, annotated_photo_key FROM compliance_checks WHERE 1 = 1"
+        params: list[Any] = []
+        for clause, value in (
+            (" AND json_extract(document, '$.store_id') = ?", store_id),
+            (" AND fixture_id = ?", fixture_id),
+            (" AND bay = ?", bay),
+            (" AND submitted_at >= ?", _stored_time(since)),
+            (" AND submitted_at <= ?", _stored_time(until)),
+        ):
+            if value is not None:
+                sql += clause
+                params.append(value)
+        rows = self._all(sql + " ORDER BY submitted_at DESC, rowid DESC", *params)
+        return [_compliance_check(r) for r in rows]
 
     def clear_annotated_photos(self, shelf_photo_id: str) -> list[str]:
         """Forgets the Annotated Photos of every Compliance Check of the Shelf Photo; returns their keys."""
@@ -272,6 +297,17 @@ def _shelf_photo(r: sqlite3.Row) -> ShelfPhoto:
         uploaded_by=r["uploaded_by"], uploaded_at=datetime.fromisoformat(r["uploaded_at"]),
         width=r["width"], height=r["height"], image_key=r["image_key"],
     )
+
+
+def _compliance_check(r: sqlite3.Row) -> ComplianceCheck:
+    check = ComplianceCheck.model_validate_json(r["document"])
+    check.annotated_photo_key = r["annotated_photo_key"]
+    return check
+
+
+def _stored_time(t: datetime | None) -> str | None:
+    """``t`` as Compliance Check times are stored (UTC, ISO 8601), so they compare as text."""
+    return as_utc(t).isoformat() if t is not None else None
 
 
 def _reference_image(r: sqlite3.Row) -> ReferenceImage:

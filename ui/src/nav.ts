@@ -7,6 +7,7 @@ export type Route =
   | { page: 'planograms'; fixtureId?: string }
   | { page: 'planogram'; id: string }
   | { page: 'compliance-check'; id: string }
+  | { page: 'history' }
 
 export const NavContext = createContext<(route: Route) => void>(() => {})
 

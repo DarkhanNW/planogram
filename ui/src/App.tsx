@@ -3,6 +3,7 @@ import { loadIdentity, setIdentity, type Identity, type Role } from './api'
 import { NavContext, type Route } from './nav'
 import CataloguePage from './pages/CataloguePage'
 import ComplianceCheckPage from './pages/ComplianceCheckPage'
+import HistoryPage from './pages/HistoryPage'
 import PhotosPage from './pages/PhotosPage'
 import PlanogramPage from './pages/PlanogramPage'
 import PlanogramsPage from './pages/PlanogramsPage'
@@ -13,6 +14,7 @@ const TABS: { route: Route; label: string }[] = [
   { route: { page: 'catalogue' }, label: 'Product Catalogue' },
   { route: { page: 'photos' }, label: 'Shelf Photos' },
   { route: { page: 'planograms' }, label: 'Planograms' },
+  { route: { page: 'history' }, label: 'Score History' },
 ]
 
 function render(route: Route) {
@@ -29,6 +31,8 @@ function render(route: Route) {
       return <PlanogramPage id={route.id} />
     case 'compliance-check':
       return <ComplianceCheckPage id={route.id} />
+    case 'history':
+      return <HistoryPage />
   }
 }
 
