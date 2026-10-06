@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from planogram.api import stores
+from planogram.api import products, stores
 from planogram.context import Context
 from planogram.images import LocalImageStore
 from planogram.repository import Repository
@@ -33,4 +33,5 @@ def create_app(settings: Settings) -> FastAPI:
     app = FastAPI(title="Planogram", version="0.1.0", description=DESCRIPTION, lifespan=lifespan)
     app.state.context = ctx
     app.include_router(stores.router)
+    app.include_router(products.router)
     return app

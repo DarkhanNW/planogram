@@ -7,7 +7,7 @@ import uuid
 from pathlib import Path
 from typing import Any
 
-from planogram.models import Fixture, Store
+from planogram.models import Fixture, Product, ReferenceImage, Store
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stores (
@@ -21,6 +21,15 @@ CREATE TABLE IF NOT EXISTS fixtures (
     name TEXT NOT NULL,
     bay_count INTEGER NOT NULL,
     created_by TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS products (
+    sku TEXT PRIMARY KEY,
+    name TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS reference_images (
+    id TEXT PRIMARY KEY,
+    sku TEXT NOT NULL REFERENCES products(sku),
+    image_key TEXT NOT NULL
 );
 """
 
@@ -82,6 +91,40 @@ class Repository:
     def get_fixture(self, fixture_id: str) -> Fixture | None:
         r = self._one("SELECT * FROM fixtures WHERE id = ?", fixture_id)
         return _fixture(r) if r else None
+
+    # Product Catalogue
+
+    def upsert_product(self, sku: str, name: str) -> bool:
+        """Creates the Product or renames it; returns True when it was created."""
+        with self._lock:
+            existed = self._one("SELECT 1 FROM products WHERE sku = ?", sku) is not None
+            if existed:
+                self._run("UPDATE products SET name = ? WHERE sku = ?", name, sku)
+            else:
+                self._run("INSERT INTO products VALUES (?, ?)", sku, name)
+            return not existed
+
+    def add_reference_image(self, sku: str, image_key: str) -> ReferenceImage:
+        image = ReferenceImage(id=new_id(), sku=sku, image_key=image_key)
+        self._run("INSERT INTO reference_images VALUES (?, ?, ?)", image.id, sku, image_key)
+        return image
+
+    def list_products(self) -> list[Product]:
+        products = {r["sku"]: Product(sku=r["sku"], name=r["name"]) for r in self._all("SELECT * FROM products ORDER BY sku")}
+        for r in self._all("SELECT * FROM reference_images ORDER BY rowid"):
+            products[r["sku"]].reference_images.append(_reference_image(r))
+        return list(products.values())
+
+    def get_product(self, sku: str) -> Product | None:
+        r = self._one("SELECT * FROM products WHERE sku = ?", sku)
+        if r is None:
+            return None
+        images = self._all("SELECT * FROM reference_images WHERE sku = ? ORDER BY rowid", sku)
+        return Product(sku=r["sku"], name=r["name"], reference_images=[_reference_image(i) for i in images])
+
+
+def _reference_image(r: sqlite3.Row) -> ReferenceImage:
+    return ReferenceImage(id=r["id"], sku=r["sku"], image_key=r["image_key"])
 
 
 def _fixture(r: sqlite3.Row) -> Fixture:

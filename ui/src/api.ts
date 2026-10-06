@@ -99,3 +99,21 @@ export interface Fixture {
   bay_count: number
   bays: number[]
 }
+
+export interface ReferenceImage {
+  id: string
+  sku: string
+  url: string
+}
+
+export interface Product {
+  sku: string
+  name: string
+  reference_images: ReferenceImage[]
+}
+
+export interface ImportReport {
+  created: string[]
+  updated: string[]
+  failed: { row: number; sku: string; reason: string }[]
+}

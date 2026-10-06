@@ -31,3 +31,32 @@ class StoreIn(Input):
 class FixtureIn(Input):
     name: str = Field(min_length=1, max_length=200)
     bay_count: int = Field(ge=1, le=100)
+
+
+class ReferenceImage(BaseModel):
+    id: str
+    sku: str
+    image_key: str = Field(exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def url(self) -> str:
+        return f"/products/{self.sku}/reference-images/{self.id}"
+
+
+class Product(BaseModel):
+    sku: str
+    name: str
+    reference_images: list[ReferenceImage] = []
+
+
+class ImportFailure(BaseModel):
+    row: int
+    sku: str
+    reason: str
+
+
+class ImportReport(BaseModel):
+    created: list[str]
+    updated: list[str]
+    failed: list[ImportFailure]
