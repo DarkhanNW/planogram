@@ -1,0 +1,33 @@
+[project]
+name = "planogram"
+version = "0.1.0"
+description = "Planogram service: Extraction and Compliance Check for retail shelves"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "python-multipart>=0.0.9",
+    "numpy>=1.26",
+    "opencv-python>=4.9",
+]
+
+[project.optional-dependencies]
+vision = ["torch>=2.2", "transformers>=4.45", "pillow>=10"]
+dev = ["pytest>=8", "httpx>=0.27", "mypy>=1.10"]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["planogram*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.mypy]
+python_version = "3.11"
+check_untyped_defs = true
+disallow_untyped_defs = true
+ignore_missing_imports = true
+exclude = ["tests/"]
