@@ -122,6 +122,8 @@ export interface ShelfPhoto {
   width: number
   height: number
   image_url: string | null
+  /** The Approved Planogram extracted from this photo, if any; deleting the photo needs confirming. */
+  approved_planogram_id: string | null
 }
 
 export interface Box {

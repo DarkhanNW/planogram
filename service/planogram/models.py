@@ -65,6 +65,9 @@ class ShelfPhoto(BaseModel):
     width: int
     height: int
     image_key: str | None = Field(default=None, exclude=True)
+    approved_planogram_id: str | None = None
+    """The Approved Planogram extracted from this photo, if any: deleting the photo loses its
+    visual reference, so a Manager is warned first."""
 
     @computed_field  # type: ignore[prop-decorator]
     @property

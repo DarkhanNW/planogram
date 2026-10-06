@@ -6,7 +6,7 @@ from fastapi.responses import Response
 from planogram.access import AnyRole, ManagerRole, OperatorRole
 from planogram.context import Context, get_context
 from planogram.models import ShelfPhoto
-from planogram.photos import delete_shelf_photo, get_shelf_photo, ingest_shelf_photo
+from planogram.photos import delete_shelf_photo_on_request, get_shelf_photo, ingest_shelf_photo
 
 router = APIRouter(tags=["Shelf Photos"])
 Ctx = Annotated[Context, Depends(get_context)]
@@ -44,6 +44,13 @@ def get_image(photo_id: str, _: AnyRole, ctx: Ctx) -> Response:
     return Response(ctx.images.get(photo.image_key), media_type="image/jpeg")
 
 
-@router.delete("/shelf-photos/{photo_id}", status_code=204)
-def delete(photo_id: str, _: ManagerRole, ctx: Ctx) -> None:
-    delete_shelf_photo(ctx, get_shelf_photo(ctx, photo_id))
+@router.delete(
+    "/shelf-photos/{photo_id}",
+    status_code=204,
+    responses={409: {"description": "An Approved Planogram was extracted from the photo (`approved_planogram_id`) and `confirm` was not set"}},
+)
+def delete(photo_id: str, _: ManagerRole, ctx: Ctx, confirm: bool = False) -> None:
+    """Deletes the Shelf Photo's image and the Annotated Photos drawn on it. Planograms and
+    Compliance Checks keep their results. Deleting the photo behind an Approved Planogram needs
+    ``confirm=true``."""
+    delete_shelf_photo_on_request(ctx, get_shelf_photo(ctx, photo_id), confirm)

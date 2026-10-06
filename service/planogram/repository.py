@@ -78,6 +78,14 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 """
 
+SHELF_PHOTOS = """
+SELECT s.*, (
+    SELECT p.id FROM planograms p, json_each(p.document, '$.bays') b
+    WHERE p.status = 'Approved' AND json_extract(b.value, '$.shelf_photo_id') = s.id
+) AS approved_planogram_id
+FROM shelf_photos s"""
+"""Shelf Photos with the Approved Planogram extracted from each, if any."""
+
 
 def new_id() -> str:
     return uuid.uuid4().hex
@@ -199,15 +207,23 @@ class Repository:
         self._run(
             "INSERT INTO shelf_photos VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
             photo.id, photo.store_id, photo.fixture_id, photo.bay, photo.uploaded_by,
-            photo.uploaded_at.isoformat(), photo.width, photo.height, photo.image_key,
+            _stored_time(photo.uploaded_at), photo.width, photo.height, photo.image_key,
         )
 
     def get_shelf_photo(self, photo_id: str) -> ShelfPhoto | None:
-        r = self._one("SELECT * FROM shelf_photos WHERE id = ?", photo_id)
+        r = self._one(f"{SHELF_PHOTOS} WHERE s.id = ?", photo_id)
         return _shelf_photo(r) if r else None
 
     def list_shelf_photos(self, fixture_id: str) -> list[ShelfPhoto]:
-        rows = self._all("SELECT * FROM shelf_photos WHERE fixture_id = ? ORDER BY uploaded_at DESC", fixture_id)
+        rows = self._all(f"{SHELF_PHOTOS} WHERE s.fixture_id = ? ORDER BY s.uploaded_at DESC", fixture_id)
+        return [_shelf_photo(r) for r in rows]
+
+    def list_shelf_photos_with_image_uploaded_before(self, cutoff: datetime) -> list[ShelfPhoto]:
+        """Shelf Photos uploaded at or before ``cutoff`` whose image has not been deleted yet."""
+        rows = self._all(
+            f"{SHELF_PHOTOS} WHERE s.uploaded_at <= ? AND s.image_key IS NOT NULL ORDER BY s.uploaded_at",
+            _stored_time(cutoff),
+        )
         return [_shelf_photo(r) for r in rows]
 
     def clear_shelf_photo_image(self, photo_id: str) -> None:
@@ -296,6 +312,7 @@ def _shelf_photo(r: sqlite3.Row) -> ShelfPhoto:
         id=r["id"], store_id=r["store_id"], fixture_id=r["fixture_id"], bay=r["bay"],
         uploaded_by=r["uploaded_by"], uploaded_at=datetime.fromisoformat(r["uploaded_at"]),
         width=r["width"], height=r["height"], image_key=r["image_key"],
+        approved_planogram_id=r["approved_planogram_id"],
     )
 
 
@@ -306,7 +323,7 @@ def _compliance_check(r: sqlite3.Row) -> ComplianceCheck:
 
 
 def _stored_time(t: datetime | None) -> str | None:
-    """``t`` as Compliance Check times are stored (UTC, ISO 8601), so they compare as text."""
+    """``t`` as times are stored (UTC, ISO 8601), so they compare as text."""
     return as_utc(t).isoformat() if t is not None else None
 
 

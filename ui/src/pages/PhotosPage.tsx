@@ -58,9 +58,13 @@ export default function PhotosPage() {
   }
 
   async function remove(photo: ShelfPhoto) {
-    if (!confirm('Delete this Shelf Photo? This cannot be undone.')) return
+    const behindApproved = !!photo.approved_planogram_id
+    const warning = behindApproved
+      ? 'The Approved Planogram for this Bay was extracted from this Shelf Photo. It will be kept, but without its photo.\n\n'
+      : ''
+    if (!confirm(`${warning}Delete this Shelf Photo? This cannot be undone.`)) return
     try {
-      await api.del(`/shelf-photos/${photo.id}`)
+      await api.del(`/shelf-photos/${photo.id}?confirm=${behindApproved}`)
       photos.reload()
     } catch (err) {
       setError(errorText(err))

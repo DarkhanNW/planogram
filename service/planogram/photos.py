@@ -71,6 +71,17 @@ def crop_shelf_photo(ctx: Context, photo: ShelfPhoto, box: Box) -> bytes:
     return encode_jpeg(image[region.y : region.bottom, region.x : region.right])
 
 
+def delete_shelf_photo_on_request(ctx: Context, photo: ShelfPhoto, confirmed: bool) -> None:
+    """A Manager deleting a Shelf Photo. When an Approved Planogram was extracted from it, the
+    deletion must be confirmed: the Planogram stays, but loses its visual reference."""
+    if photo.approved_planogram_id and photo.image_key and not confirmed:
+        raise Conflict(
+            "An Approved Planogram was extracted from this Shelf Photo; confirm to delete it anyway",
+            approved_planogram_id=photo.approved_planogram_id,
+        )
+    delete_shelf_photo(ctx, photo)
+
+
 def delete_shelf_photo(ctx: Context, photo: ShelfPhoto) -> None:
     """Deletes the image, and the Annotated Photos drawn on it; the records stay so Planograms and
     Compliance Checks keep their history."""

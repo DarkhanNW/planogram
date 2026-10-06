@@ -21,6 +21,10 @@ class Settings:
     something that is not broken stops trusting the report."""
     detector_model: str = "google/owlv2-base-patch16-ensemble"
     embedding_model: str = "facebook/dinov2-small"
+    photo_retention_months: int = 6
+    """How long a Shelf Photo is kept after upload before the retention sweep deletes it (ADR 0003)."""
+    retention_sweep_hours: float = 1.0
+    """How often the retention sweep runs; it also runs when the service starts."""
 
     @classmethod
     def from_env(cls) -> "Settings":
@@ -36,4 +40,6 @@ class Settings:
             verification_threshold=float(env.get("PLANOGRAM_VERIFICATION_THRESHOLD", cls.verification_threshold)),
             detector_model=env.get("PLANOGRAM_DETECTOR_MODEL", cls.detector_model),
             embedding_model=env.get("PLANOGRAM_EMBEDDING_MODEL", cls.embedding_model),
+            photo_retention_months=int(env.get("PLANOGRAM_PHOTO_RETENTION_MONTHS", cls.photo_retention_months)),
+            retention_sweep_hours=float(env.get("PLANOGRAM_RETENTION_SWEEP_HOURS", cls.retention_sweep_hours)),
         )

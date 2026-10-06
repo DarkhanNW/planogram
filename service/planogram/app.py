@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
@@ -14,6 +15,7 @@ from planogram.images import ImageStore, LocalImageStore
 from planogram.jobs import JobRunner, ThreadJobRunner
 from planogram.recognition import Recognizer
 from planogram.repository import Repository
+from planogram.retention import sweep_expired_shelf_photos, sweep_periodically
 from planogram.settings import Settings
 
 DESCRIPTION = """
@@ -55,7 +57,10 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        await asyncio.to_thread(sweep_expired_shelf_photos, ctx)
+        sweeper = asyncio.create_task(sweep_periodically(ctx))
         yield
+        sweeper.cancel()
         ctx.jobs.shutdown()
         ctx.repo.close()
 
