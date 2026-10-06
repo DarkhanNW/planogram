@@ -10,7 +10,7 @@ from planogram.api import photos, planograms, products, stores
 from planogram.blurring import OpenCvPersonBlurrer, PersonBlurrer
 from planogram.context import Clock, Context
 from planogram.errors import DomainError
-from planogram.images import LocalImageStore
+from planogram.images import ImageStore, LocalImageStore
 from planogram.jobs import JobRunner, ThreadJobRunner
 from planogram.recognition import Recognizer
 from planogram.repository import Repository
@@ -29,10 +29,10 @@ def utc_now() -> datetime:
     return datetime.now(UTC)
 
 
-def default_recognizer(settings: Settings) -> Recognizer:
-    from planogram.vision import TwoStageRecognizer  # heavy: loads the vision models
+def default_recognizer(settings: Settings, images: ImageStore) -> Recognizer:
+    from planogram.vision import TwoStageRecognizer  # needs the optional vision dependencies
 
-    return TwoStageRecognizer(settings)
+    return TwoStageRecognizer(settings, images)
 
 
 def create_app(
@@ -42,12 +42,13 @@ def create_app(
     jobs: JobRunner | None = None,
     clock: Clock = utc_now,
 ) -> FastAPI:
+    images = LocalImageStore(settings.image_dir)
     ctx = Context(
         settings=settings,
         repo=Repository(settings.db_path),
-        images=LocalImageStore(settings.image_dir),
+        images=images,
         blurrer=blurrer or OpenCvPersonBlurrer(),
-        recognizer=recognizer or default_recognizer(settings),
+        recognizer=recognizer or default_recognizer(settings, images),
         jobs=jobs or ThreadJobRunner(),
         clock=clock,
     )
