@@ -180,3 +180,35 @@ export interface ImportReport {
   updated: string[]
   failed: { row: number; sku: string; reason: string }[]
 }
+
+export type DeviationKind = 'Gap' | 'Unexpected'
+
+export interface Position {
+  bay: number
+  shelf: number
+  order: number
+  facings: number
+}
+
+export interface Deviation {
+  kind: DeviationKind
+  sku: string | null
+  facings: number
+  planned: Position | null
+  observed: Position | null
+  box: Box
+  confidence: number
+}
+
+export interface ComplianceCheck {
+  id: string
+  shelf_photo_id: string
+  planogram_id: string
+  store_id: string
+  fixture_id: string
+  bay: number
+  submitted_by: string
+  submitted_at: string
+  compliance_score: number
+  deviations: Deviation[]
+}

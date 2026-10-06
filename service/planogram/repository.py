@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any
 
 from planogram.models import (
+    ComplianceCheck,
     Fixture,
     Job,
     Planogram,
@@ -62,6 +63,14 @@ CREATE TABLE IF NOT EXISTS planograms (
     document TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS planograms_by_fixture ON planograms(fixture_id, status);
+CREATE TABLE IF NOT EXISTS compliance_checks (
+    id TEXT PRIMARY KEY,
+    fixture_id TEXT NOT NULL REFERENCES fixtures(id),
+    bay INTEGER NOT NULL,
+    submitted_at TEXT NOT NULL,
+    document TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS compliance_checks_by_bay ON compliance_checks(fixture_id, bay, submitted_at);
 CREATE TABLE IF NOT EXISTS jobs (
     id TEXT PRIMARY KEY,
     document TEXT NOT NULL
@@ -213,6 +222,18 @@ class Repository:
             params.append(status.value)
         rows = self._all(sql + " ORDER BY created_at DESC, rowid DESC", *params)
         return [Planogram.model_validate_json(r["document"]) for r in rows]
+
+    # Compliance Checks: each is stored whole as a JSON document, indexed by Bay and time.
+
+    def save_compliance_check(self, check: ComplianceCheck) -> None:
+        self._run(
+            "INSERT OR REPLACE INTO compliance_checks VALUES (?, ?, ?, ?, ?)",
+            check.id, check.fixture_id, check.bay, check.submitted_at.isoformat(), check.model_dump_json(),
+        )
+
+    def get_compliance_check(self, check_id: str) -> ComplianceCheck | None:
+        r = self._one("SELECT document FROM compliance_checks WHERE id = ?", check_id)
+        return ComplianceCheck.model_validate_json(r["document"]) if r else None
 
     # Jobs
 

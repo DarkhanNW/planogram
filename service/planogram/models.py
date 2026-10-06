@@ -112,6 +112,11 @@ class BayLayout(BaseModel):
     shelf_photo_id: str | None
     shelves: list[Shelf]
 
+    @property
+    def skus(self) -> set[str]:
+        """The Products planned in the Bay."""
+        return {b.sku for s in self.shelves for b in s.blocks if b.sku is not None}
+
 
 class PlanogramStatus(str, Enum):
     DRAFT = "Draft"
@@ -200,3 +205,52 @@ class BlockIn(Input):
     facings: int = Field(ge=1)
     position: int = Field(ge=0)
     """Where on the Shelf to insert the Block: 0 is the leftmost."""
+
+
+class ComplianceCheckIn(Input):
+    shelf_photo_id: str
+
+
+class DeviationKind(str, Enum):
+    GAP = "Gap"
+    UNEXPECTED = "Unexpected"
+
+
+class Position(BaseModel):
+    """Where a Block sits: its Bay, its Shelf (from the bottom), its order from the left on
+    that Shelf (1 is the leftmost) and its number of Facings."""
+
+    bay: int
+    shelf: int
+    order: int
+    facings: int
+
+
+class Deviation(BaseModel):
+    kind: DeviationKind
+    sku: str | None
+    """The planned Product for a Gap; what is on the Shelf for Unexpected (None for an Unknown Product)."""
+    facings: int
+    """How many Facings the Deviation involves."""
+    planned: Position | None
+    """The planned Block's Position; None for something not in the Approved Planogram."""
+    observed: Position | None
+    """The observed Block's Position; None when nothing of the planned Block is left."""
+    box: Box
+    """Where the Deviation is in the Shelf Photo."""
+    confidence: float
+
+
+class ComplianceCheck(BaseModel):
+    id: str
+    shelf_photo_id: str
+    planogram_id: str
+    """The Approved Planogram current for the Fixture when the check was submitted."""
+    store_id: str
+    fixture_id: str
+    bay: int
+    submitted_by: str
+    submitted_at: datetime
+    compliance_score: float
+    """The percentage of the Bay's planned Facings present in their correct Position, as a fraction 0..1."""
+    deviations: list[Deviation]

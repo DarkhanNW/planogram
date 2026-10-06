@@ -6,6 +6,12 @@ import { waitForJob } from '../jobs'
 import { useNav } from '../nav'
 import { errorText, useAsync } from '../useAsync'
 
+/** What a Shelf Photo can be submitted for, and the page showing each job's result. */
+const SUBMISSIONS = {
+  extraction: { label: 'Extraction', path: '/extractions', page: 'planogram' },
+  'compliance-check': { label: 'Compliance Check', path: '/compliance-checks', page: 'compliance-check' },
+} as const
+
 export default function PhotosPage() {
   const [selection, setSelection] = useState<Selection>({})
   const [file, setFile] = useState<File | null>(null)
@@ -35,15 +41,16 @@ export default function PhotosPage() {
     }
   }
 
-  async function submit(photo: ShelfPhoto) {
+  async function submit(photo: ShelfPhoto, kind: keyof typeof SUBMISSIONS) {
+    const { label, path, page } = SUBMISSIONS[kind]
     try {
-      setStatus('Extraction queued…')
-      const job = await waitForJob(await api.post<Job>('/extractions', { shelf_photo_id: photo.id }), (j) =>
-        setStatus(`Extraction ${j.status}…`),
+      setStatus(`${label} queued…`)
+      const job = await waitForJob(await api.post<Job>(path, { shelf_photo_id: photo.id }), (j) =>
+        setStatus(`${label} ${j.status}…`),
       )
-      if (job.status === 'failed' || !job.result_id) throw new Error(job.error ?? 'Extraction failed')
+      if (job.status === 'failed' || !job.result_id) throw new Error(job.error ?? `${label} failed`)
       setStatus(undefined)
-      nav({ page: 'planogram', id: job.result_id })
+      nav({ page, id: job.result_id })
     } catch (err) {
       setStatus(undefined)
       setError(errorText(err))
@@ -78,7 +85,8 @@ export default function PhotosPage() {
           <div className="inline">
             <strong>Bay {photo.bay}</strong>
             <span className="muted">uploaded {new Date(photo.uploaded_at).toLocaleString()} by {photo.uploaded_by}</span>
-            <button className="small" onClick={() => submit(photo)} disabled={!photo.image_url || !!status}>Extract Draft Planogram</button>
+            <button className="small" onClick={() => submit(photo, 'extraction')} disabled={!photo.image_url || !!status}>Extract Draft Planogram</button>
+            <button className="small" onClick={() => submit(photo, 'compliance-check')} disabled={!photo.image_url || !!status}>Check compliance</button>
             <button className="danger small" onClick={() => remove(photo)} disabled={!photo.image_url}>Delete</button>
           </div>
           {photo.image_url ? <AuthImage path={photo.image_url} style={{ maxWidth: '100%' }} /> : <p className="muted">Image deleted.</p>}

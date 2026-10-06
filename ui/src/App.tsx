@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { loadIdentity, setIdentity, type Identity, type Role } from './api'
 import { NavContext, type Route } from './nav'
 import CataloguePage from './pages/CataloguePage'
+import ComplianceCheckPage from './pages/ComplianceCheckPage'
 import PhotosPage from './pages/PhotosPage'
 import PlanogramPage from './pages/PlanogramPage'
 import PlanogramsPage from './pages/PlanogramsPage'
@@ -26,6 +27,8 @@ function render(route: Route) {
       return <PlanogramsPage />
     case 'planogram':
       return <PlanogramPage id={route.id} />
+    case 'compliance-check':
+      return <ComplianceCheckPage id={route.id} />
   }
 }
 

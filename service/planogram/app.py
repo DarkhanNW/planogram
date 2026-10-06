@@ -6,7 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 
 from planogram.api import jobs as jobs_api
-from planogram.api import photos, planograms, products, stores
+from planogram.api import compliance, photos, planograms, products, stores
 from planogram.blurring import OpenCvPersonBlurrer, PersonBlurrer
 from planogram.context import Clock, Context
 from planogram.errors import DomainError
@@ -66,6 +66,6 @@ def create_app(
     async def domain_error(_: Request, e: DomainError) -> JSONResponse:
         return JSONResponse({"detail": e.message, **e.details}, status_code=e.status_code)
 
-    for module in (stores, products, photos, jobs_api, planograms):
+    for module in (stores, products, photos, jobs_api, planograms, compliance):
         app.include_router(module.router)
     return app
