@@ -7,6 +7,8 @@
   --danger: #c62828;
   --warning: #b45309;
   --muted: #69727d;
+  --misplaced: #0e7490;
+  --wrong-count: #7c3aed;
 }
 body { margin: 0; }
 header { display: flex; gap: 1rem; align-items: center; flex-wrap: wrap; padding: .75rem 1rem; background: #fff; border-bottom: 1px solid var(--border); }
@@ -44,3 +46,9 @@ th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--
 .photo .box.unexpected { border-color: var(--danger); }
 .tag.gap { background: #fef3c7; color: var(--warning); font-weight: 600; }
 .tag.unexpected { background: #fde2e2; color: var(--danger); font-weight: 600; }
+.photo .box.missing { border-color: var(--danger); border-style: dashed; }
+.photo .box.wrong-facing-count { border-color: var(--wrong-count); }
+.photo .box.misplaced { border-color: var(--misplaced); }
+.tag.missing { background: #fde2e2; color: var(--danger); font-weight: 600; }
+.tag.wrong-facing-count { background: #ede9fe; color: var(--wrong-count); font-weight: 600; }
+.tag.misplaced { background: #cffafe; color: var(--misplaced); font-weight: 600; }

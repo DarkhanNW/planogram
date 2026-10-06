@@ -213,6 +213,9 @@ class ComplianceCheckIn(Input):
 
 class DeviationKind(str, Enum):
     GAP = "Gap"
+    MISSING = "Missing"
+    WRONG_FACING_COUNT = "Wrong Facing Count"
+    MISPLACED = "Misplaced"
     UNEXPECTED = "Unexpected"
 
 
@@ -229,9 +232,9 @@ class Position(BaseModel):
 class Deviation(BaseModel):
     kind: DeviationKind
     sku: str | None
-    """The planned Product for a Gap; what is on the Shelf for Unexpected (None for an Unknown Product)."""
+    """The planned Product, or for Unexpected what is on the Shelf (None for an Unknown Product)."""
     facings: int
-    """How many Facings the Deviation involves."""
+    """How many Facings the Deviation involves: for Wrong Facing Count, how many too few or too many."""
     planned: Position | None
     """The planned Block's Position; None for something not in the Approved Planogram."""
     observed: Position | None

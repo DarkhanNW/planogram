@@ -181,7 +181,7 @@ export interface ImportReport {
   failed: { row: number; sku: string; reason: string }[]
 }
 
-export type DeviationKind = 'Gap' | 'Unexpected'
+export type DeviationKind = 'Gap' | 'Missing' | 'Wrong Facing Count' | 'Misplaced' | 'Unexpected'
 
 export interface Position {
   bay: number

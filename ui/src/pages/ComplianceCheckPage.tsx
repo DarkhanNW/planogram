@@ -1,8 +1,12 @@
 import { useState } from 'react'
-import { api, type ComplianceCheck, type Position, type Product } from '../api'
+import { api, type ComplianceCheck, type DeviationKind, type Position, type Product } from '../api'
 import BoxedPhoto from '../BoxedPhoto'
 import { useNav } from '../nav'
 import { useAsync } from '../useAsync'
+
+function kindClass(kind: DeviationKind) {
+  return kind.toLowerCase().replaceAll(' ', '-')
+}
 
 function position(p: Position | null) {
   return p ? `Shelf ${p.shelf}, Block ${p.order}, ×${p.facings}` : '—'
@@ -21,7 +25,7 @@ export default function ComplianceCheckPage({ id }: { id: string }) {
   const outlines = c.deviations.map((d, i) => ({
     key: String(i),
     box: d.box,
-    className: `${d.kind.toLowerCase()} ${i === selected ? 'selected' : ''}`,
+    className: `${kindClass(d.kind)} ${i === selected ? 'selected' : ''}`,
     title: `${d.kind}: ${product(d.sku)} ×${d.facings}`,
   }))
 
@@ -56,7 +60,7 @@ export default function ComplianceCheckPage({ id }: { id: string }) {
                 <tbody>
                   {c.deviations.map((d, i) => (
                     <tr key={i} onMouseEnter={() => setSelected(i)} onMouseLeave={() => setSelected(undefined)}>
-                      <td><span className={`tag ${d.kind.toLowerCase()}`}>{d.kind}</span></td>
+                      <td><span className={`tag ${kindClass(d.kind)}`}>{d.kind}</span></td>
                       <td>{product(d.sku)}</td>
                       <td>{d.facings}</td>
                       <td>{position(d.planned)}</td>
