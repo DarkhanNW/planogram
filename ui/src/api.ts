@@ -220,4 +220,6 @@ export interface ComplianceCheck {
   coverage: number
   deviations: Deviation[]
   unverified: UnverifiedArea[]
+  /** Null once the Shelf Photo has been deleted. */
+  annotated_photo_url: string | null
 }

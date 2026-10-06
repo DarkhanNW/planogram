@@ -36,9 +36,10 @@ def check(
     facings: list[RecognizedFacing],
     empties: list[EmptyRegion] = [],
     bay: int = 1,
+    image: bytes | None = None,
 ) -> dict[str, Any]:
     recognizer.result = Recognition(facings=facings, empty_regions=empties)
-    photo = upload_photo(client, fixture, bay=bay).json()
+    photo = upload_photo(client, fixture, bay=bay, image=image).json()
     response = client.post("/compliance-checks", json={"shelf_photo_id": photo["id"]}, headers=OPERATOR)
     assert response.status_code == 202, response.text
     job = client.get(f"/jobs/{response.json()['id']}", headers=VIEWER).json()

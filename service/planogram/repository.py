@@ -68,7 +68,8 @@ CREATE TABLE IF NOT EXISTS compliance_checks (
     fixture_id TEXT NOT NULL REFERENCES fixtures(id),
     bay INTEGER NOT NULL,
     submitted_at TEXT NOT NULL,
-    document TEXT NOT NULL
+    document TEXT NOT NULL,
+    annotated_photo_key TEXT
 );
 CREATE INDEX IF NOT EXISTS compliance_checks_by_bay ON compliance_checks(fixture_id, bay, submitted_at);
 CREATE TABLE IF NOT EXISTS jobs (
@@ -90,6 +91,13 @@ class Repository:
         self._db.execute("PRAGMA foreign_keys = ON")
         self._lock = threading.RLock()
         self._db.executescript(SCHEMA)
+        self._add_missing_columns()
+
+    def _add_missing_columns(self) -> None:
+        """Columns added since a table was first created; CREATE TABLE IF NOT EXISTS skips them."""
+        columns = {r["name"] for r in self._db.execute("PRAGMA table_info(compliance_checks)")}
+        if "annotated_photo_key" not in columns:
+            self._db.execute("ALTER TABLE compliance_checks ADD COLUMN annotated_photo_key TEXT")
 
     def close(self) -> None:
         self._db.close()
@@ -227,13 +235,26 @@ class Repository:
 
     def save_compliance_check(self, check: ComplianceCheck) -> None:
         self._run(
-            "INSERT OR REPLACE INTO compliance_checks VALUES (?, ?, ?, ?, ?)",
+            "INSERT OR REPLACE INTO compliance_checks VALUES (?, ?, ?, ?, ?, ?)",
             check.id, check.fixture_id, check.bay, check.submitted_at.isoformat(), check.model_dump_json(),
+            check.annotated_photo_key,
         )
 
     def get_compliance_check(self, check_id: str) -> ComplianceCheck | None:
-        r = self._one("SELECT document FROM compliance_checks WHERE id = ?", check_id)
-        return ComplianceCheck.model_validate_json(r["document"]) if r else None
+        r = self._one("SELECT document, annotated_photo_key FROM compliance_checks WHERE id = ?", check_id)
+        if r is None:
+            return None
+        check = ComplianceCheck.model_validate_json(r["document"])
+        check.annotated_photo_key = r["annotated_photo_key"]
+        return check
+
+    def clear_annotated_photos(self, shelf_photo_id: str) -> list[str]:
+        """Forgets the Annotated Photos of every Compliance Check of the Shelf Photo; returns their keys."""
+        where = "json_extract(document, '$.shelf_photo_id') = ? AND annotated_photo_key IS NOT NULL"
+        with self.transaction():
+            rows = self._all(f"SELECT annotated_photo_key FROM compliance_checks WHERE {where}", shelf_photo_id)
+            self._run(f"UPDATE compliance_checks SET annotated_photo_key = NULL WHERE {where}", shelf_photo_id)
+        return [r["annotated_photo_key"] for r in rows]
 
     # Jobs
 

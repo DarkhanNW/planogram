@@ -270,3 +270,10 @@ class ComplianceCheck(BaseModel):
     """The percentage of the Bay's planned Facings the check could verify, as a fraction 0..1."""
     deviations: list[Deviation]
     unverified: list[UnverifiedArea]
+    annotated_photo_key: str | None = Field(default=None, exclude=True)
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def annotated_photo_url(self) -> str | None:
+        """The Annotated Photo; None once its Shelf Photo has been deleted, as it shows the photo."""
+        return f"/compliance-checks/{self.id}/annotated-photo" if self.annotated_photo_key else None

@@ -9,8 +9,9 @@ export interface Outline {
   title?: string
 }
 
-/** A Shelf Photo with boxes drawn over it, positioned relative to the photo's pixel size. */
-export default function BoxedPhoto({ photoId, outlines = [] }: { photoId: string; outlines?: Outline[] }) {
+/** A Shelf Photo with boxes drawn over it, positioned relative to the photo's pixel size.
+ * `imagePath` shows another image of the same size in its place, such as an Annotated Photo. */
+export default function BoxedPhoto({ photoId, imagePath, outlines = [] }: { photoId: string; imagePath?: string; outlines?: Outline[] }) {
   const photo = useAsync(() => api.get<ShelfPhoto>(`/shelf-photos/${photoId}`), [photoId])
   const p = photo.data
   if (!p) return <span className="muted">{photo.error ?? 'loading…'}</span>
@@ -18,7 +19,7 @@ export default function BoxedPhoto({ photoId, outlines = [] }: { photoId: string
   const pct = (value: number, total: number) => `${(value / total) * 100}%`
   return (
     <div className="photo">
-      <AuthImage path={p.image_url} />
+      <AuthImage path={imagePath ?? p.image_url} />
       {outlines.map((o) => (
         <div
           key={o.key}

@@ -72,7 +72,10 @@ def crop_shelf_photo(ctx: Context, photo: ShelfPhoto, box: Box) -> bytes:
 
 
 def delete_shelf_photo(ctx: Context, photo: ShelfPhoto) -> None:
-    """Deletes the image; the record stays so Planograms and Compliance Checks keep their history."""
+    """Deletes the image, and the Annotated Photos drawn on it; the records stay so Planograms and
+    Compliance Checks keep their history."""
     if photo.image_key:
         ctx.images.delete(photo.image_key)
     ctx.repo.clear_shelf_photo_image(photo.id)
+    for key in ctx.repo.clear_annotated_photos(photo.id):
+        ctx.images.delete(key)

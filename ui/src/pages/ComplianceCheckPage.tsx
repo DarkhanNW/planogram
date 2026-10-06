@@ -63,7 +63,12 @@ export default function ComplianceCheckPage({ id }: { id: string }) {
       <section>
         <div className="row">
           <div style={{ flex: '1 1 420px' }}>
-            <BoxedPhoto photoId={c.shelf_photo_id} outlines={outlines} />
+            {/* The Annotated Photo already shows every box; over it, only the hovered one is outlined. */}
+            <BoxedPhoto
+              photoId={c.shelf_photo_id}
+              imagePath={c.annotated_photo_url ?? undefined}
+              outlines={c.annotated_photo_url ? outlines.filter((o) => o.key === selected) : outlines}
+            />
           </div>
           <div style={{ flex: '1 1 420px' }}>
             {c.deviations.length === 0 ? (
