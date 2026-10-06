@@ -1,16 +1,19 @@
 """Compliance Check: compares a Shelf Photo of a Bay with the Approved Planogram current for
 its Fixture when the check is submitted."""
 
+import numpy as np
+
 from planogram.access import Actor
 from planogram.annotation import annotate
-from planogram.comparer import compare
+from planogram.comparer import Comparison, compare
 from planogram.context import Context
 from planogram.errors import Conflict, NotFound
 from planogram.jobs import new_job, start_job
 from planogram.layout import build_layout
-from planogram.models import ComplianceCheck, Job, JobKind, Planogram, ShelfPhoto
+from planogram.models import BayLayout, ComplianceCheck, Job, JobKind, Planogram, Product, ShelfPhoto
 from planogram.photos import encode_jpeg, get_shelf_photo, load_shelf_photo_image
 from planogram.planograms import current_approved
+from planogram.recognition import Recognizer
 from planogram.repository import new_id
 
 
@@ -30,15 +33,9 @@ def run_compliance_check(ctx: Context, photo: ShelfPhoto, planogram: Planogram, 
     """Runs the Compliance Check, saves it and returns its id."""
     planned = planogram.bay(photo.bay)
     assert planned is not None
-    planned_skus = planned.skus
-    products = ctx.repo.list_products()
     image = load_shelf_photo_image(ctx, photo)
-    recognition = ctx.recognizer.recognize(
-        image,
-        [p for p in products if p.sku in planned_skus],
-        [p for p in products if p.sku not in planned_skus],
-    )
-    comparison = compare(planned, build_layout(recognition), ctx.settings.verification_threshold)
+    products = ctx.repo.list_products()
+    comparison = check_bay(ctx.recognizer, image, planned, products, ctx.settings.verification_threshold)
     annotated = annotate(image, comparison.deviations, comparison.unverified)
     result = ComplianceCheck(
         id=new_id(), shelf_photo_id=photo.id, planogram_id=planogram.id, store_id=photo.store_id,
@@ -49,6 +46,20 @@ def run_compliance_check(ctx: Context, photo: ShelfPhoto, planogram: Planogram, 
     )
     ctx.repo.save_compliance_check(result)
     return result.id
+
+
+def check_bay(
+    recognizer: Recognizer, image: np.ndarray, planned: BayLayout, products: list[Product], threshold: float
+) -> Comparison:
+    """Compares a (blurred) Shelf Photo of a Bay with the Bay as planned. The planned Products
+    are matched first and the rest of the Product Catalogue only as a fallback."""
+    planned_skus = planned.skus
+    recognition = recognizer.recognize(
+        image,
+        [p for p in products if p.sku in planned_skus],
+        [p for p in products if p.sku not in planned_skus],
+    )
+    return compare(planned, build_layout(recognition), threshold)
 
 
 def get_compliance_check(ctx: Context, check_id: str) -> ComplianceCheck:

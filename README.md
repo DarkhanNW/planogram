@@ -46,6 +46,18 @@ Tests call the HTTP API in-process against a temporary database and image folder
 .venv/Scripts/python -m mypy planogram
 ```
 
+### Evaluating recognition
+
+`service/evaluation/` runs the real pipeline over a labelled set of real Shelf Photos and
+reports Block identification, confidently-wrong rate, exact facing count and Deviation
+precision and recall against the MVP targets. See `service/evaluation/README.md` for the
+labelled set format; it is a measurement, not part of the test suite:
+
+```sh
+cd service
+.venv/Scripts/python -m evaluation path/to/labelled-set
+```
+
 ## Development UI
 
 ```sh
