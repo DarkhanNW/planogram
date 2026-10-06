@@ -1,7 +1,9 @@
 """Layout Builder: turns a Recognition of one Bay into Shelves (from the bottom) of runs
 (from the left). Adjacent Facings of the same Product on a Shelf form one run; so do adjacent
-Unknown Products and adjacent empty regions."""
+empty regions. Each Unknown Product Facing is a run of its own: nothing says two adjacent
+Facings that match no Product are the same Product."""
 
+from collections.abc import Iterable
 from itertools import groupby
 from statistics import median
 
@@ -14,7 +16,7 @@ from planogram.repository import new_id
 
 
 class Segment(BaseModel):
-    """A run on an observed Shelf: Facings of one Product, Unknown Products, or empty space."""
+    """A run on an observed Shelf: Facings of one Product, one Unknown Product, or empty space."""
 
     sku: str | None
     empty: bool
@@ -43,8 +45,7 @@ def build_layout(recognition: Recognition) -> list[ObservedShelf]:
     ]
     shelves = []
     for number, on_shelf in groupby(sorted(items, key=lambda i: (i[0], i[1].box.x)), key=lambda i: i[0]):
-        runs = groupby((s for _, s in on_shelf), key=lambda s: (s.empty, s.sku))
-        shelves.append(ObservedShelf(number=number, segments=[_merge(list(run)) for _, run in runs]))
+        shelves.append(ObservedShelf(number=number, segments=[_merge(run) for run in _runs(s for _, s in on_shelf)]))
     return shelves
 
 
@@ -57,6 +58,17 @@ def to_shelves(observed: list[ObservedShelf]) -> list[Shelf]:
         )
         for shelf in observed
     ]
+
+
+def _runs(segments: Iterable[Segment]) -> list[list[Segment]]:
+    runs: list[list[Segment]] = []
+    for segment in segments:
+        last = runs[-1][-1] if runs else None
+        if last is not None and not segment.unknown and (last.empty, last.sku) == (segment.empty, segment.sku):
+            runs[-1].append(segment)
+        else:
+            runs.append([segment])
+    return runs
 
 
 def _merge(run: list[Segment]) -> Segment:

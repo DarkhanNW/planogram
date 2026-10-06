@@ -8,9 +8,11 @@ from planogram.recognition import Recognition
 from test_extraction import extract, stock_catalogue, summary
 
 
-def draft_from(client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any], *rows: list[Any], bay: int = 1) -> dict[str, Any]:
+def draft_from(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any], *rows: list[Any], bay: int = 1, image: bytes | None = None
+) -> dict[str, Any]:
     recognizer.result = Recognition(facings=[f for row in rows for f in row], empty_regions=[])
-    job = extract(client, upload_photo(client, fixture, bay=bay).json()["id"])
+    job = extract(client, upload_photo(client, fixture, bay=bay, image=image).json()["id"])
     planogram: dict[str, Any] = client.get(job["result_url"], headers=VIEWER).json()
     return planogram
 

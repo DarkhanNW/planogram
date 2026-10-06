@@ -95,8 +95,8 @@ def block_crop(ctx: Context, planogram_id: str, bay: int, block_id: str) -> byte
 
 
 def resolve_unknown(ctx: Context, planogram_id: str, bay: int, block_id: str, resolution: Resolution) -> Planogram:
-    """Resolves an Unknown Product Block from the shelf itself: one Facing's crop becomes a
-    reference image of a new or existing Product, and the Block becomes that Product."""
+    """Resolves an Unknown Product Block from the shelf itself: the crop of its one Facing
+    becomes a reference image of a new or existing Product, and the Block becomes that Product."""
     draft, layout = _draft_bay(ctx, planogram_id, bay)
     shelf, index = _find_block(layout, block_id)
     block = shelf.blocks[index]
@@ -104,8 +104,7 @@ def resolve_unknown(ctx: Context, planogram_id: str, bay: int, block_id: str, re
         raise Conflict("Only an Unknown Product can be resolved from its crop")
     if block.box is None or layout.shelf_photo_id is None:
         raise Conflict("The Block was not extracted from a Shelf Photo, so it has no crop")
-    one_facing = block.box.model_copy(update={"w": max(1, block.box.w // block.facings)})
-    crop = crop_shelf_photo(ctx, get_shelf_photo(ctx, layout.shelf_photo_id), one_facing)
+    crop = crop_shelf_photo(ctx, get_shelf_photo(ctx, layout.shelf_photo_id), block.box)
 
     if resolution.new_product is not None:
         sku = resolution.new_product.sku

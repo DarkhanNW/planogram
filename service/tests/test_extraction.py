@@ -52,7 +52,7 @@ def test_extraction_builds_a_draft_planogram_for_the_photographed_bay(
     [bay] = planogram["bays"]
     assert bay["bay"] == 2
     assert bay["shelf_photo_id"] == photo["id"]
-    assert summary(bay) == [[("A", 2), ("B", 1)], [("C", 1), (None, 2)]]
+    assert summary(bay) == [[("A", 2), ("B", 1)], [("C", 1), (None, 1), (None, 1)]]
     assert [s["number"] for s in bay["shelves"]] == [1, 2]
 
 
@@ -82,6 +82,22 @@ def test_unmatched_facings_become_unknown_product_blocks(client: TestClient, rec
     blocks = planogram["bays"][0]["shelves"][0]["blocks"]
     assert [(b["sku"], b["facings"], b["unknown"]) for b in blocks] == [
         ("A", 1, False), (None, 1, True), ("A", 1, False)
+    ]
+
+
+def test_each_unknown_product_facing_is_its_own_block(client: TestClient, recognizer: FakeRecognizer) -> None:
+    # Nothing says two unmatched packs side by side are the same Product.
+    stock_catalogue(client, "A")
+    fixture = register_fixture(client)
+    photo = upload_photo(client, fixture).json()
+    recognizer.result = Recognition(facings=shelf_row(1, None, None), empty_regions=[])
+
+    planogram = client.get(extract(client, photo["id"])["result_url"], headers=VIEWER).json()
+
+    blocks = planogram["bays"][0]["shelves"][0]["blocks"]
+    assert [(b["sku"], b["facings"], b["unknown"], b["box"]) for b in blocks] == [
+        (None, 1, True, {"x": 0, "y": 300, "w": 50, "h": 100}),
+        (None, 1, True, {"x": 50, "y": 300, "w": 50, "h": 100}),
     ]
 
 
