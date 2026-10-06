@@ -4,6 +4,8 @@ be swapped (e.g. Postgres) without touching it."""
 import sqlite3
 import threading
 import uuid
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -82,6 +84,20 @@ class Repository:
 
     def close(self) -> None:
         self._db.close()
+
+    @contextmanager
+    def transaction(self) -> Iterator[None]:
+        """Commits every write made inside the block together, or none of them if it raises.
+        Other threads wait until it ends."""
+        with self._lock:
+            self._db.execute("BEGIN IMMEDIATE")
+            try:
+                yield
+                self._db.execute("COMMIT")
+            except BaseException:
+                if self._db.in_transaction:
+                    self._db.execute("ROLLBACK")
+                raise
 
     def _all(self, sql: str, *params: Any) -> list[sqlite3.Row]:
         with self._lock:

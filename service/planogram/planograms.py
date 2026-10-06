@@ -135,15 +135,17 @@ def approve(ctx: Context, planogram_id: str, actor: Actor) -> Planogram:
     if not draft.bays:
         raise Conflict("The Draft Planogram has no Bays")
     now = ctx.clock()
-    previous = current_approved(ctx, draft.fixture_id)
-    if previous is not None:
-        ctx.repo.save_planogram(
-            previous.model_copy(update={"status": PlanogramStatus.SUPERSEDED, "superseded_at": now})
-        )
     approved = draft.model_copy(
         update={"status": PlanogramStatus.APPROVED, "approved_by": actor.user_id, "approved_at": now}
     )
-    ctx.repo.save_planogram(approved)
+    # Together, so the Fixture is never left without an Approved Planogram.
+    with ctx.repo.transaction():
+        previous = current_approved(ctx, draft.fixture_id)
+        if previous is not None:
+            ctx.repo.save_planogram(
+                previous.model_copy(update={"status": PlanogramStatus.SUPERSEDED, "superseded_at": now})
+            )
+        ctx.repo.save_planogram(approved)
     return approved
 
 

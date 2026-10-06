@@ -4,6 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from conftest import MANAGER, OPERATOR, VIEWER, FakeRecognizer, register_fixture, shelf_row, upload_photo
+from planogram.models import Planogram
 from planogram.recognition import Recognition
 from test_extraction import extract, stock_catalogue, summary
 
@@ -156,6 +157,31 @@ def test_approving_supersedes_the_previous_approved_planogram(
     superseded = client.get(f"/planograms/{first['id']}", headers=VIEWER).json()
     assert superseded["superseded_at"]
     assert summary(superseded["bays"][0]) == [[("A", 1)]]
+
+
+def test_a_failure_partway_through_approval_changes_nothing(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    first = draft_from(client, recognizer, fixture, shelf_row(1, "A"))
+    client.post(f"/planograms/{first['id']}/approve", headers=MANAGER)
+    second = draft_from(client, recognizer, fixture, shelf_row(1, "B"))
+    repo = client.app.state.context.repo  # type: ignore[attr-defined]
+    save = repo.save_planogram
+    saved: list[Planogram] = []
+
+    def fail_on_the_second_write(planogram: Planogram) -> None:
+        if saved:
+            raise RuntimeError("disk full")
+        save(planogram)
+        saved.append(planogram)
+
+    monkeypatch.setattr(repo, "save_planogram", fail_on_the_second_write)
+
+    with pytest.raises(RuntimeError):
+        client.post(f"/planograms/{second['id']}/approve", headers=MANAGER)
+
+    history = client.get(f"/fixtures/{fixture['id']}/planograms", headers=VIEWER).json()
+    assert [(p["id"], p["status"]) for p in history] == [(second["id"], "Draft"), (first["id"], "Approved")]
 
 
 def test_a_new_draft_keeps_the_approved_layout_of_bays_not_re_extracted(
