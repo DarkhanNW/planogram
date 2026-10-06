@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Iterator
+from typing import Callable, Iterator
 
 import cv2
 import httpx
@@ -51,15 +51,20 @@ def blurrer() -> FakePersonBlurrer:
 
 
 class FakeRecognizer:
-    """Returns the scripted Recognition for every photo; set ``result`` before submitting."""
+    """Returns the scripted Recognition for every photo; set ``result`` before submitting.
+    ``while_recognizing``, if set, runs once mid-recognition, to interleave requests with a job."""
 
     def __init__(self) -> None:
         self.result = Recognition(facings=[], empty_regions=[])
         self.error: Exception | None = None
         self.calls: list[tuple[list[str], list[str]]] = []
+        self.while_recognizing: Callable[[], None] | None = None
 
     def recognize(self, image: np.ndarray, candidates: list[Product], fallback: list[Product]) -> Recognition:
         self.calls.append(([p.sku for p in candidates], [p.sku for p in fallback]))
+        if self.while_recognizing:
+            interleave, self.while_recognizing = self.while_recognizing, None
+            interleave()
         if self.error:
             raise self.error
         return self.result

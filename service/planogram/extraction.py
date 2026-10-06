@@ -22,6 +22,9 @@ def extract(ctx: Context, photo: ShelfPhoto) -> str:
     """Puts the extracted Bay into the Fixture's Draft Planogram and returns the Draft's id."""
     recognition = ctx.recognizer.recognize(load_shelf_photo_image(ctx, photo), ctx.repo.list_products(), [])
     layout = BayLayout(bay=photo.bay, shelf_photo_id=photo.id, shelves=to_shelves(build_layout(recognition)))
-    draft = with_bay(open_draft(ctx, photo.fixture_id), layout)
-    ctx.repo.save_planogram(draft)
+    # Recognition is slow, so it runs first; only reading the latest Draft and saving it with
+    # the new Bay are one transaction, so edits saved meanwhile are kept.
+    with ctx.repo.transaction():
+        draft = with_bay(open_draft(ctx, photo.fixture_id), layout)
+        ctx.repo.save_planogram(draft)
     return draft.id

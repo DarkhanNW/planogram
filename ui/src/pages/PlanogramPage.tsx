@@ -28,6 +28,9 @@ export default function PlanogramPage({ id }: { id: string }) {
       planogram.reload()
     } catch (err) {
       setError(errorText(err))
+      // A Conflict may mean the Draft changed since it was loaded (an Extraction or another
+      // Manager's edit), so show the latest one for the Manager to redo the edit on.
+      if (err instanceof ApiError && err.status === 409) planogram.reload()
     }
   }
 

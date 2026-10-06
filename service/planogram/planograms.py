@@ -1,5 +1,7 @@
 """Planogram lifecycle: Draft (editable) → Approved (never changes) → Superseded."""
 
+from collections.abc import Callable
+
 from planogram.access import Actor
 from planogram.context import Context
 from planogram.errors import Conflict, Invalid, NotFound
@@ -42,43 +44,52 @@ def with_bay(planogram: Planogram, layout: BayLayout) -> Planogram:
     return planogram.model_copy(update={"bays": sorted(bays, key=lambda b: b.bay)})
 
 
-# Draft edits. Each loads the Draft, changes one Shelf and saves it; Blocks of the same
-# Product left side by side by an edit are merged, since together they are one Block.
+# Draft edits. Each loads the latest Draft, changes one Shelf and saves it in one transaction,
+# so no Extraction or other edit saved meanwhile is lost. An edit naming a Block no longer in
+# the Draft (changed, deleted or re-extracted since the Manager loaded it) is refused. Blocks
+# of the same Product left side by side by an edit are merged, since together they are one Block.
 
 
 def change_block(
     ctx: Context, planogram_id: str, bay: int, block_id: str, sku: str | None, facings: int | None
 ) -> Planogram:
-    draft, layout = _draft_bay(ctx, planogram_id, bay)
-    shelf, index = _find_block(layout, block_id)
-    if sku is not None:
-        _require_product(ctx, sku)
-    block = shelf.blocks[index]
-    shelf.blocks[index] = block.model_copy(
-        update={"sku": sku if sku is not None else block.sku, "facings": facings or block.facings}
-    )
-    return _save(ctx, draft, layout, shelf)
+    def change(layout: BayLayout) -> Shelf:
+        shelf, index = _find_block_or_conflict(layout, block_id)
+        if sku is not None:
+            _require_product(ctx, sku)
+        block = shelf.blocks[index]
+        shelf.blocks[index] = block.model_copy(
+            update={"sku": sku if sku is not None else block.sku, "facings": facings or block.facings}
+        )
+        return shelf
+
+    return _edit(ctx, planogram_id, bay, change)
 
 
 def delete_block(ctx: Context, planogram_id: str, bay: int, block_id: str) -> Planogram:
-    draft, layout = _draft_bay(ctx, planogram_id, bay)
-    shelf, index = _find_block(layout, block_id)
-    del shelf.blocks[index]
-    return _save(ctx, draft, layout, shelf)
+    def delete(layout: BayLayout) -> Shelf:
+        shelf, index = _find_block_or_conflict(layout, block_id)
+        del shelf.blocks[index]
+        return shelf
+
+    return _edit(ctx, planogram_id, bay, delete)
 
 
 def insert_block(
     ctx: Context, planogram_id: str, bay: int, shelf_number: int, sku: str, facings: int, position: int
 ) -> Planogram:
     """Inserts a Block at ``position`` (0 is the leftmost) on a Shelf, adding the Shelf if new."""
-    draft, layout = _draft_bay(ctx, planogram_id, bay)
-    _require_product(ctx, sku)
-    shelf = next((s for s in layout.shelves if s.number == shelf_number), None)
-    if shelf is None:
-        shelf = Shelf(number=shelf_number, blocks=[])
-        layout.shelves = sorted(layout.shelves + [shelf], key=lambda s: s.number)
-    shelf.blocks.insert(min(position, len(shelf.blocks)), Block(id=new_id(), sku=sku, facings=facings))
-    return _save(ctx, draft, layout, shelf)
+
+    def insert(layout: BayLayout) -> Shelf:
+        _require_product(ctx, sku)
+        shelf = next((s for s in layout.shelves if s.number == shelf_number), None)
+        if shelf is None:
+            shelf = Shelf(number=shelf_number, blocks=[])
+            layout.shelves = sorted(layout.shelves + [shelf], key=lambda s: s.number)
+        shelf.blocks.insert(min(position, len(shelf.blocks)), Block(id=new_id(), sku=sku, facings=facings))
+        return shelf
+
+    return _edit(ctx, planogram_id, bay, insert)
 
 
 def block_crop(ctx: Context, planogram_id: str, bay: int, block_id: str) -> bytes:
@@ -97,32 +108,53 @@ def block_crop(ctx: Context, planogram_id: str, bay: int, block_id: str) -> byte
 def resolve_unknown(ctx: Context, planogram_id: str, bay: int, block_id: str, resolution: Resolution) -> Planogram:
     """Resolves an Unknown Product Block from the shelf itself: the crop of its one Facing
     becomes a reference image of a new or existing Product, and the Block becomes that Product."""
-    draft, layout = _draft_bay(ctx, planogram_id, bay)
-    shelf, index = _find_block(layout, block_id)
-    block = shelf.blocks[index]
-    if not block.unknown:
-        raise Conflict("Only an Unknown Product can be resolved from its crop")
-    if block.box is None or layout.shelf_photo_id is None:
-        raise Conflict("The Block was not extracted from a Shelf Photo, so it has no crop")
-    crop = crop_shelf_photo(ctx, get_shelf_photo(ctx, layout.shelf_photo_id), block.box)
 
-    if resolution.new_product is not None:
-        sku = resolution.new_product.sku
-        if ctx.repo.get_product(sku) is not None:
-            raise Conflict(f"A Product with SKU {sku} already exists; add the crop to it instead")
-        ctx.repo.upsert_product(sku, resolution.new_product.name)
-    else:
-        sku = resolution.existing_sku or ""
-        _require_product(ctx, sku)
-    ctx.repo.add_reference_image(sku, ctx.images.put(crop))
-    shelf.blocks[index] = block.model_copy(update={"sku": sku})
-    return _save(ctx, draft, layout, shelf)
+    def resolve(layout: BayLayout) -> Shelf:
+        shelf, index = _find_block_or_conflict(layout, block_id)
+        block = shelf.blocks[index]
+        if not block.unknown:
+            raise Conflict("Only an Unknown Product can be resolved from its crop")
+        if block.box is None or layout.shelf_photo_id is None:
+            raise Conflict("The Block was not extracted from a Shelf Photo, so it has no crop")
+        crop = crop_shelf_photo(ctx, get_shelf_photo(ctx, layout.shelf_photo_id), block.box)
+
+        if resolution.new_product is not None:
+            sku = resolution.new_product.sku
+            if ctx.repo.get_product(sku) is not None:
+                raise Conflict(f"A Product with SKU {sku} already exists; add the crop to it instead")
+            ctx.repo.upsert_product(sku, resolution.new_product.name)
+        else:
+            sku = resolution.existing_sku or ""
+            _require_product(ctx, sku)
+        ctx.repo.add_reference_image(sku, ctx.images.put(crop))
+        shelf.blocks[index] = block.model_copy(update={"sku": sku})
+        return shelf
+
+    return _edit(ctx, planogram_id, bay, resolve)
 
 
 def approve(ctx: Context, planogram_id: str, actor: Actor) -> Planogram:
     """Approves a Draft, superseding the Fixture's previous Approved Planogram. Refused while
     any Block is an Unknown Product, since no Compliance Check could match it."""
-    draft = _draft(ctx, planogram_id)
+    # Together, so the Fixture is never left without an Approved Planogram, and what is approved
+    # is the latest Draft, with every edit and Extraction saved before it.
+    with ctx.repo.transaction():
+        draft = _draft(ctx, planogram_id)
+        _require_approvable(draft)
+        now = ctx.clock()
+        approved = draft.model_copy(
+            update={"status": PlanogramStatus.APPROVED, "approved_by": actor.user_id, "approved_at": now}
+        )
+        previous = current_approved(ctx, draft.fixture_id)
+        if previous is not None:
+            ctx.repo.save_planogram(
+                previous.model_copy(update={"status": PlanogramStatus.SUPERSEDED, "superseded_at": now})
+            )
+        ctx.repo.save_planogram(approved)
+    return approved
+
+
+def _require_approvable(draft: Planogram) -> None:
     unknown = [
         {"bay": layout.bay, "shelf": shelf.number, "position": position, "block_id": block.id}
         for layout in draft.bays
@@ -134,19 +166,6 @@ def approve(ctx: Context, planogram_id: str, actor: Actor) -> Planogram:
         raise Conflict("Resolve every Unknown Product before approving", unknown_blocks=unknown)
     if not draft.bays:
         raise Conflict("The Draft Planogram has no Bays")
-    now = ctx.clock()
-    approved = draft.model_copy(
-        update={"status": PlanogramStatus.APPROVED, "approved_by": actor.user_id, "approved_at": now}
-    )
-    # Together, so the Fixture is never left without an Approved Planogram.
-    with ctx.repo.transaction():
-        previous = current_approved(ctx, draft.fixture_id)
-        if previous is not None:
-            ctx.repo.save_planogram(
-                previous.model_copy(update={"status": PlanogramStatus.SUPERSEDED, "superseded_at": now})
-            )
-        ctx.repo.save_planogram(approved)
-    return approved
 
 
 def _draft(ctx: Context, planogram_id: str) -> Planogram:
@@ -158,12 +177,19 @@ def _draft(ctx: Context, planogram_id: str) -> Planogram:
     return planogram
 
 
-def _draft_bay(ctx: Context, planogram_id: str, bay: int) -> tuple[Planogram, BayLayout]:
-    draft = _draft(ctx, planogram_id)
-    layout = draft.bay(bay)
-    if layout is None:
-        raise NotFound(f"The Planogram has no Bay {bay}")
-    return draft, layout
+def _edit(ctx: Context, planogram_id: str, bay: int, change: Callable[[BayLayout], Shelf]) -> Planogram:
+    """Applies ``change``, which returns the Shelf it changed, to a Bay of the latest Draft and
+    saves it, all in one transaction."""
+    with ctx.repo.transaction():
+        draft = _draft(ctx, planogram_id)
+        layout = draft.bay(bay)
+        if layout is None:
+            raise NotFound(f"The Planogram has no Bay {bay}")
+        shelf = change(layout)
+        shelf.blocks = merge_neighbours(shelf.blocks)
+        layout.shelves = [s for s in layout.shelves if s.blocks]
+        ctx.repo.save_planogram(draft)
+    return draft
 
 
 def _find_block(layout: BayLayout, block_id: str) -> tuple[Shelf, int]:
@@ -174,16 +200,16 @@ def _find_block(layout: BayLayout, block_id: str) -> tuple[Shelf, int]:
     raise NotFound("Block not found")
 
 
+def _find_block_or_conflict(layout: BayLayout, block_id: str) -> tuple[Shelf, int]:
+    try:
+        return _find_block(layout, block_id)
+    except NotFound:
+        raise Conflict("The Block is no longer in the Draft Planogram; it has changed since you loaded it") from None
+
+
 def _require_product(ctx: Context, sku: str) -> None:
     if ctx.repo.get_product(sku) is None:
         raise Invalid(f"No Product with SKU {sku} in the Product Catalogue")
-
-
-def _save(ctx: Context, draft: Planogram, layout: BayLayout, shelf: Shelf) -> Planogram:
-    shelf.blocks = merge_neighbours(shelf.blocks)
-    layout.shelves = [s for s in layout.shelves if s.blocks]
-    ctx.repo.save_planogram(draft)
-    return draft
 
 
 def merge_neighbours(blocks: list[Block]) -> list[Block]:
