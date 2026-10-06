@@ -1,15 +1,17 @@
 """The real Recognizer (ADR 0001), running entirely inside the service:
 
 1. Detect: an off-the-shelf open-vocabulary detector (OWLv2) boxes every Facing; Shelves are
-   found by clustering Facings on their bottom edges (the Shelf lines).
+   found by clustering Facings on their bottom edges, plus any Shelf line (a long horizontal
+   edge) that no Facings stand on: an empty Shelf.
 2. Match: each Facing crop is described by an image embedding (DINOv2) plus a colour
    histogram and compared with the reference images of the candidate Products. A Facing whose
    best match is below the threshold, or does not clearly beat the runner-up, is an Unknown
    Product. Colour matters: embeddings alone confuse packs of the same shape and layout.
 
-Empty Shelf regions are the gaps between Facings on a Shelf that are wide enough to hold a
-Facing. No custom training; models download once from the Hugging Face hub (weights only;
-no image ever leaves the service)."""
+Empty Shelf regions are empty Shelves, and the gaps between Facings on a Shelf, or between
+the Bay's edges and its outermost Facings, that are wide enough to hold a Facing. No custom
+training; models download once from the Hugging Face hub (weights only; no image ever leaves
+the service)."""
 
 import threading
 from dataclasses import dataclass
@@ -43,6 +45,12 @@ INSIDE_ANOTHER = 0.6
 """Detections with this share of their area inside a larger detection are parts of it."""
 EMPTY_GAP = 0.6
 """A gap at least this many typical Facing widths wide is empty Shelf space."""
+LINE_COVERAGE = 0.5
+"""A horizontal edge across at least this share of the photo's width is a Shelf line."""
+LINE_CONTRAST = 60
+"""Vertical brightness gradient (Sobel) a pixel needs to count towards a Shelf line."""
+NO_FACINGS_HEIGHT = 0.1
+"""With no Facings to measure, a typical Facing is taken as this share of the photo's height."""
 COLOUR_WEIGHT = 0.25
 """Share of the match similarity that comes from colour; the rest is the embedding."""
 
@@ -70,18 +78,18 @@ class TwoStageRecognizer:
     def recognize(self, image: np.ndarray, candidates: list[Product], fallback: list[Product]) -> Recognition:
         with self._lock:
             detections = self._detect(image)
+            bay = find_bay(image, [d.box for d in detections])
             if not detections:
-                return Recognition(facings=[], empty_regions=[])
-            shelves = assign_shelves([d.box for d in detections])
+                return Recognition(facings=[], empty_regions=find_empty_regions(image, bay, []))
             descriptors = self._describe([crop(image, d.box) for d in detections])
             primary, secondary = self._index(candidates), self._index(fallback)
             facings = []
-            for detection, shelf, descriptor in zip(detections, shelves, descriptors):
+            for i, (detection, descriptor) in enumerate(zip(detections, descriptors)):
                 sku, confidence = self._match(descriptor, primary)
                 if sku is None and secondary:
                     sku, confidence = self._match(descriptor, secondary)
-                facings.append(RecognizedFacing(box=detection.box, shelf=shelf, sku=sku, confidence=confidence))
-            return Recognition(facings=facings, empty_regions=find_empty_regions(image, facings))
+                facings.append(RecognizedFacing(box=detection.box, shelf=bay.shelf_of(i), sku=sku, confidence=confidence))
+            return Recognition(facings=facings, empty_regions=find_empty_regions(image, bay, facings))
 
     # Stage 1: detection
 
@@ -215,38 +223,133 @@ def drop_fragments(detections: list[Detection]) -> list[Detection]:
     return [d for d in whole if d.box.h >= MIN_RELATIVE_HEIGHT * typical]
 
 
-def assign_shelves(boxes: list[Box]) -> list[int]:
-    """Shelf number (1 = bottom) for each box, clustering boxes whose bottom edges sit on the
-    same Shelf line. A new Shelf starts wherever consecutive bottom edges (from the bottom of
-    the photo up) are further apart than a third of a typical Facing's height."""
-    tolerance = median(b.h for b in boxes) / 3
-    order = sorted(range(len(boxes)), key=lambda i: boxes[i].bottom, reverse=True)
-    shelves = [0] * len(boxes)
-    shelf, previous = 1, boxes[order[0]].bottom
-    for i in order:
-        if previous - boxes[i].bottom > tolerance:
-            shelf += 1
-        shelves[i], previous = shelf, boxes[i].bottom
-    return shelves
+@dataclass
+class ShelfLine:
+    """A long horizontal edge across the Bay: the front of a Shelf, or the top of the Bay."""
+
+    y: int
+    left: int
+    right: int
 
 
-def find_empty_regions(image: np.ndarray, facings: list[RecognizedFacing]) -> list[EmptyRegion]:
-    """Gaps between Facings on a Shelf, and between the Bay's edges and its outermost Facings,
-    that could hold a Facing. Confidence falls as the gap shows more edges, since a busy gap
-    probably holds a product the detector missed."""
-    width = median(f.box.w for f in facings)
-    left_edge, right_edge = min(f.box.x for f in facings), max(f.box.right for f in facings)
+@dataclass
+class ShelfSpace:
+    """The space for Facings on one Shelf. On a stocked Shelf it spans its Facings; on an empty
+    Shelf, from its Shelf line up to the Shelf above it."""
+
+    number: int
+    top: int
+    bottom: int
+    facings: list[int]
+    """Indices of the Facing boxes standing on this Shelf."""
+
+
+@dataclass
+class Bay:
+    """The Bay a Shelf Photo shows: its horizontal extent and its Shelves."""
+
+    left: int
+    right: int
+    shelves: list[ShelfSpace]
+    """Every Shelf, stocked or empty, from the bottom (number 1) up."""
+
+    def shelf_of(self, facing: int) -> int:
+        """The Shelf number of the Facing box at this index."""
+        return next(s.number for s in self.shelves if facing in s.facings)
+
+
+def find_shelf_lines(image: np.ndarray) -> list[ShelfLine]:
+    """Horizontal edges crossing at least ``LINE_COVERAGE`` of the photo, from the top down."""
+    height = image.shape[0]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    strong = (np.abs(cv2.Sobel(gray, cv2.CV_32F, 0, 1, ksize=3)) > LINE_CONTRAST).astype(np.uint8)
+    # Thicken vertically so a slightly tilted Shelf edge still lines up along a row.
+    slack = max(3, height // 100)
+    horizontal = cv2.dilate(strong, np.ones((slack, 1), np.uint8)) > 0
+    rows = np.flatnonzero(horizontal.mean(axis=1) >= LINE_COVERAGE)
+    if not rows.size:
+        return []
+    lines = []
+    for band in np.split(rows, np.flatnonzero(np.diff(rows) > slack) + 1):
+        columns = np.flatnonzero(horizontal[band[0] : band[-1] + 1].any(axis=0))
+        lines.append(ShelfLine(y=int(band.mean()), left=int(columns[0]), right=int(columns[-1]) + 1))
+    return lines
+
+
+def find_bay(image: np.ndarray, boxes: list[Box]) -> Bay:
+    """The Bay's Shelves, stocked and empty, and its horizontal extent, from its Shelf lines
+    and the Facing boxes."""
+    height, width = image.shape[:2]
+    lines = find_shelf_lines(image)
+    typical_height = median(b.h for b in boxes) if boxes else NO_FACINGS_HEIGHT * height
+    stocked = _stocked_shelves(boxes, typical_height / 3)
+    empty = _empty_shelves(lines, stocked, typical_height)
+    shelves = sorted(stocked + empty, key=lambda s: s.bottom, reverse=True)
+    for number, shelf in enumerate(shelves, start=1):
+        shelf.number = number
+
+    left, right = (int(median(l.left for l in lines)), int(median(l.right for l in lines))) if lines else (0, width)
+    if boxes:
+        left, right = min(left, *(b.x for b in boxes)), max(right, *(b.right for b in boxes))
+    return Bay(left=left, right=right, shelves=shelves)
+
+
+def _stocked_shelves(boxes: list[Box], tolerance: float) -> list[ShelfSpace]:
+    """Facings whose bottom edges sit together stand on one Shelf: a new Shelf starts wherever
+    consecutive bottom edges (from the bottom of the photo up) are further apart than
+    ``tolerance``. Unnumbered."""
+    groups: list[list[int]] = []
+    previous = 0
+    for i in sorted(range(len(boxes)), key=lambda i: boxes[i].bottom, reverse=True):
+        if not groups or previous - boxes[i].bottom > tolerance:
+            groups.append([])
+        groups[-1].append(i)
+        previous = boxes[i].bottom
+    return [
+        ShelfSpace(number=0, top=min(boxes[i].y for i in g), bottom=max(boxes[i].bottom for i in g), facings=g)
+        for g in groups
+    ]
+
+
+def _empty_shelves(lines: list[ShelfLine], stocked: list[ShelfSpace], typical_height: float) -> list[ShelfSpace]:
+    """A Shelf line that no Facings stand on or cross is an empty Shelf when the space above it,
+    up to the next Shelf, could hold a typical Facing; the topmost line, with nothing above
+    it, is the top of the Bay. Lines closer than a third of a Facing are one Shelf edge.
+    Unnumbered."""
+    tolerance = typical_height / 3
+    free: list[int] = []
+    for line in sorted(lines, key=lambda line: line.y):
+        stood_on_or_crossed = any(
+            abs(line.y - s.bottom) <= tolerance or s.top + tolerance < line.y < s.bottom for s in stocked
+        )
+        if not stood_on_or_crossed and not (free and line.y - free[-1] <= tolerance):
+            free.append(line.y)
+    empty = []
+    for y in free:
+        above = [other for other in free if other < y] + [s.bottom for s in stocked if s.bottom < y]
+        if above and y - max(above) >= typical_height:
+            empty.append(ShelfSpace(number=0, top=max(above), bottom=y, facings=[]))
+    return empty
+
+
+def find_empty_regions(image: np.ndarray, bay: Bay, facings: list[RecognizedFacing]) -> list[EmptyRegion]:
+    """Empty Shelves, and gaps between Facings on a Shelf or between the Bay's edges and its
+    outermost Facings, that could hold a Facing. Confidence falls as the space shows more
+    edges, since a busy space probably holds a product the detector missed."""
     edges = cv2.Canny(cv2.cvtColor(image, cv2.COLOR_BGR2GRAY), 80, 160)
+
+    def region(left: int, right: int, shelf: ShelfSpace) -> EmptyRegion:
+        box = Box(x=left, y=shelf.top, w=right - left, h=shelf.bottom - shelf.top)
+        density = float(np.count_nonzero(crop(edges, box))) / max(1, box.w * box.h)
+        return EmptyRegion(box=box, shelf=shelf.number, confidence=float(np.clip(1.0 - density / 0.12, 0.0, 0.95)))
+
+    width = median(f.box.w for f in facings) if facings else 0
     regions = []
-    for shelf in sorted({f.shelf for f in facings}):
-        on_shelf = sorted((f.box for f in facings if f.shelf == shelf), key=lambda b: b.x)
-        top, bottom = min(b.y for b in on_shelf), max(b.bottom for b in on_shelf)
-        start = left_edge
-        for box in on_shelf + [Box(x=right_edge, y=top, w=0, h=0)]:
+    for shelf in bay.shelves:
+        on_shelf = sorted((f.box for f in facings if f.shelf == shelf.number), key=lambda b: b.x)
+        start = bay.left
+        for box in on_shelf + [Box(x=bay.right, y=shelf.top, w=0, h=0)]:
             if box.x - start >= EMPTY_GAP * width:
-                gap = Box(x=start, y=top, w=box.x - start, h=bottom - top)
-                density = float(np.count_nonzero(crop(edges, gap))) / max(1, gap.w * gap.h)
-                confidence = float(np.clip(1.0 - density / 0.12, 0.0, 0.95))
-                regions.append(EmptyRegion(box=gap, shelf=shelf, confidence=confidence))
+                regions.append(region(start, box.x, shelf))
             start = max(start, box.right)
     return regions
