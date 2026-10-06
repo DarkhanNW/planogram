@@ -244,6 +244,15 @@ class Deviation(BaseModel):
     confidence: float
 
 
+class UnverifiedArea(BaseModel):
+    """Where recognition was not confident enough to report a Deviation or confirm compliance."""
+
+    shelf: int
+    box: Box
+    """Where the area is in the Shelf Photo."""
+    confidence: float
+
+
 class ComplianceCheck(BaseModel):
     id: str
     shelf_photo_id: str
@@ -254,6 +263,10 @@ class ComplianceCheck(BaseModel):
     bay: int
     submitted_by: str
     submitted_at: datetime
-    compliance_score: float
-    """The percentage of the Bay's planned Facings present in their correct Position, as a fraction 0..1."""
+    compliance_score: float | None
+    """The percentage of the Bay's verified planned Facings present in their correct Position, as
+    a fraction 0..1; None when no planned Facing could be verified."""
+    coverage: float
+    """The percentage of the Bay's planned Facings the check could verify, as a fraction 0..1."""
     deviations: list[Deviation]
+    unverified: list[UnverifiedArea]

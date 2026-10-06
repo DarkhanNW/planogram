@@ -36,11 +36,12 @@ def run_compliance_check(ctx: Context, photo: ShelfPhoto, planogram: Planogram, 
         [p for p in products if p.sku in planned_skus],
         [p for p in products if p.sku not in planned_skus],
     )
-    comparison = compare(planned, build_layout(recognition))
+    comparison = compare(planned, build_layout(recognition), ctx.settings.verification_threshold)
     result = ComplianceCheck(
         id=new_id(), shelf_photo_id=photo.id, planogram_id=planogram.id, store_id=photo.store_id,
         fixture_id=photo.fixture_id, bay=photo.bay, submitted_by=job.submitted_by, submitted_at=job.submitted_at,
-        compliance_score=comparison.compliance_score, deviations=comparison.deviations,
+        compliance_score=comparison.compliance_score, coverage=comparison.coverage,
+        deviations=comparison.deviations, unverified=comparison.unverified,
     )
     ctx.repo.save_compliance_check(result)
     return result.id

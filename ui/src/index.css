@@ -52,3 +52,5 @@ th, td { text-align: left; padding: .3rem .5rem; border-bottom: 1px solid var(--
 .tag.missing { background: #fde2e2; color: var(--danger); font-weight: 600; }
 .tag.wrong-facing-count { background: #ede9fe; color: var(--wrong-count); font-weight: 600; }
 .tag.misplaced { background: #cffafe; color: var(--misplaced); font-weight: 600; }
+.photo .box.unverified { border: 1px dotted var(--muted); background: rgb(105 114 125 / 15%); }
+.tag.unverified { background: #eceef1; color: var(--muted); }

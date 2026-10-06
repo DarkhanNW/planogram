@@ -15,20 +15,35 @@ a Block claims is one Gap. A planned Block with Facings absent beyond the empty 
 claimed is Missing when nothing of it is in place, its space taken by something else, and
 otherwise has a Wrong Facing Count; so does a paired Block with more Facings than planned,
 unless they fill the space of a Missing neighbour. Anything observed that the Bay's plan does
-not hold, including Unknown Products, is Unexpected."""
+not hold, including Unknown Products, is Unexpected.
+
+Precision first: every observed run whose confidence is below the threshold is an Unverified
+area. It never pairs, so it cannot confirm a Product in place or push others out of theirs. A
+Deviation resting on one is not reported, and the planned Facings it accounts for are
+Unverified: they count towards neither the Compliance Score nor Coverage's verified share."""
 
 from dataclasses import dataclass, field
 from itertools import groupby
 
 from planogram.geometry import Box
 from planogram.layout import ObservedShelf, Segment
-from planogram.models import Block, BayLayout, Deviation, DeviationKind, Position
+from planogram.models import Block, BayLayout, Deviation, DeviationKind, Position, UnverifiedArea
 
 
 @dataclass
 class Comparison:
     deviations: list[Deviation]
-    compliance_score: float
+    compliance_score: float | None
+    """None when no planned Facing could be verified."""
+    coverage: float
+    unverified: list[UnverifiedArea]
+
+
+@dataclass
+class _Finding:
+    deviation: Deviation
+    planned_facings: int = 0
+    """The planned Facings it accounts for, left Unverified when it is not confident."""
 
 
 @dataclass
@@ -80,30 +95,44 @@ class _Shelf:
         return [i for i in self.stocked if i not in paired]
 
 
-def compare(planned: BayLayout, observed: list[ObservedShelf]) -> Comparison:
+def compare(planned: BayLayout, observed: list[ObservedShelf], threshold: float) -> Comparison:
+    """``threshold`` is the confidence below which recognition leaves an area Unverified."""
     planned_shelves = {s.number: s.blocks for s in planned.shelves}
     observed_shelves = {s.number: s.segments for s in observed}
     shelves = [
-        _paired_shelf(planned.bay, n, planned_shelves.get(n, []), observed_shelves.get(n, []))
+        _paired_shelf(planned.bay, n, planned_shelves.get(n, []), observed_shelves.get(n, []), threshold)
         for n in sorted(planned_shelves.keys() | observed_shelves.keys())
     ]
-    deviations = _misplaced(shelves, planned.skus)
+    findings = _misplaced(shelves, planned.skus)
     for shelf in shelves:
-        deviations += _shelf_deviations(shelf, planned.skus)
-    deviations.sort(key=lambda d: (_shelf_of(d), d.box.x))
+        findings += _shelf_deviations(shelf, planned.skus)
+    confident = [f for f in findings if f.deviation.confidence >= threshold]
+    unverified = sum(f.planned_facings for f in findings if f.deviation.confidence < threshold)
+
     present = sum(p.present for s in shelves for p in s.plan)
     total = sum(p.block.facings for s in shelves for p in s.plan)
-    return Comparison(deviations=deviations, compliance_score=present / total if total else 1.0)
+    verifiable = total - unverified
+    return Comparison(
+        deviations=sorted((f.deviation for f in confident), key=lambda d: (_shelf_of(d), d.box.x)),
+        compliance_score=present / verifiable if verifiable else None,
+        coverage=verifiable / total if total else 1.0,
+        unverified=[
+            UnverifiedArea(shelf=s.number, box=segment.box, confidence=segment.confidence)
+            for s in shelves
+            for segment in s.segments
+            if segment.confidence < threshold
+        ],
+    )
 
 
-def _paired_shelf(bay: int, number: int, blocks: list[Block], segments: list[Segment]) -> _Shelf:
+def _paired_shelf(bay: int, number: int, blocks: list[Block], segments: list[Segment], threshold: float) -> _Shelf:
     def at(order: int, facings: int) -> Position:
         return Position(bay=bay, shelf=number, order=order + 1, facings=facings)
 
     plan = [_PlannedBlock(block=b, position=at(i, b.facings)) for i, b in enumerate(blocks)]
     stocked = [i for i, s in enumerate(segments) if not s.empty]
     observed_at = {i: at(order, segments[i].facings) for order, i in enumerate(stocked)}
-    pairs = _pair([b.sku for b in blocks], [(i, segments[i].sku) for i in stocked])
+    pairs = _pair([b.sku for b in blocks], [(i, segments[i].sku) for i in stocked if segments[i].confidence >= threshold])
     for p, s in pairs:
         plan[p].observed, plan[p].segment = observed_at[s], s
         plan[p].present = min(blocks[p].facings, segments[s].facings)
@@ -111,10 +140,10 @@ def _paired_shelf(bay: int, number: int, blocks: list[Block], segments: list[Seg
     return _Shelf(number=number, plan=plan, segments=segments, stocked=stocked, observed_at=observed_at, pairs=pairs)
 
 
-def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[Deviation]:
+def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[_Finding]:
     """Each observed Block of a planned Product off its planned Position is Misplaced, standing
     in for the nearest planned Block of that Product short of Facings, or else the nearest."""
-    deviations = []
+    findings = []
     for shelf in shelves:
         for i in shelf.unpaired:
             segment, observed = shelf.segments[i], shelf.observed_at[i]
@@ -124,15 +153,16 @@ def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[Deviation]
                 (p for s in shelves for p in s.plan if p.block.sku == segment.sku),
                 key=lambda p: (p.missing <= 0, abs(p.position.shelf - shelf.number), abs(p.position.order - observed.order)),
             )
-            planned.elsewhere += max(0, min(planned.missing, segment.facings))
-            deviations.append(Deviation(
+            standing_in = max(0, min(planned.missing, segment.facings))
+            planned.elsewhere += standing_in
+            findings.append(_Finding(Deviation(
                 kind=DeviationKind.MISPLACED, sku=segment.sku, facings=segment.facings, planned=planned.position,
                 observed=observed, box=segment.box, confidence=segment.confidence,
-            ))
-    return deviations
+            ), standing_in))
+    return findings
 
 
-def _shelf_deviations(shelf: _Shelf, planned_skus: set[str]) -> list[Deviation]:
+def _shelf_deviations(shelf: _Shelf, planned_skus: set[str]) -> list[_Finding]:
     """The Shelf's Gaps, Missing, Wrong Facing Counts and Unexpected."""
     plan, segments = shelf.plan, shelf.segments
 
@@ -161,30 +191,30 @@ def _shelf_deviations(shelf: _Shelf, planned_skus: set[str]) -> list[Deviation]:
                 need -= take
 
     return [
-        Deviation(
+        _Finding(Deviation(
             kind=DeviationKind.GAP, sku=p.block.sku, facings=len(run), planned=p.position, observed=p.observed,
             box=Box.union([f.box for f in run]), confidence=min(f.confidence for f in run),
-        )
+        ), len(run))
         for p in plan
         for run in (list(r) for _, r in groupby(sorted(p.empty, key=lambda f: f.box.x), key=lambda f: f.run))
     ] + [
-        Deviation(
+        _Finding(Deviation(
             kind=DeviationKind.MISSING, sku=p.block.sku, facings=p.missing, planned=p.position, observed=None,
             box=Box.union([s.box for s in taken]), confidence=min(s.confidence for s in taken),
-        )
+        ), p.missing)
         for p, taken in missing
     ] + [
-        Deviation(
+        _Finding(Deviation(
             kind=DeviationKind.WRONG_FACING_COUNT, sku=p.block.sku, facings=p.extra or p.missing, planned=p.position,
             observed=p.observed, box=segments[p.segment].box, confidence=segments[p.segment].confidence,
-        )
+        ), max(0, p.missing))
         for p in plan
         if p.segment is not None and (p.extra or p.missing > 0)
     ] + [
-        Deviation(
+        _Finding(Deviation(
             kind=DeviationKind.UNEXPECTED, sku=segments[i].sku, facings=segments[i].facings, planned=None,
             observed=shelf.observed_at[i], box=segments[i].box, confidence=segments[i].confidence,
-        )
+        ))
         for i in shelf.unpaired
         if segments[i].unknown or segments[i].sku not in planned_skus
     ]

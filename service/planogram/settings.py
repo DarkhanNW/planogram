@@ -15,6 +15,10 @@ class Settings:
     match_margin: float = 0.05
     """How far the best Product must lead the runner-up before a match is trusted."""
     detection_threshold: float = 0.15
+    verification_threshold: float = 0.60
+    """Recognition confidence below which a Compliance Check leaves an area Unverified rather
+    than report a Deviation or confirm compliance there. Precision first: a Manager sent to fix
+    something that is not broken stops trusting the report."""
     detector_model: str = "google/owlv2-base-patch16-ensemble"
     embedding_model: str = "facebook/dinov2-small"
 
@@ -29,6 +33,7 @@ class Settings:
             match_threshold=float(env.get("PLANOGRAM_MATCH_THRESHOLD", cls.match_threshold)),
             match_margin=float(env.get("PLANOGRAM_MATCH_MARGIN", cls.match_margin)),
             detection_threshold=float(env.get("PLANOGRAM_DETECTION_THRESHOLD", cls.detection_threshold)),
+            verification_threshold=float(env.get("PLANOGRAM_VERIFICATION_THRESHOLD", cls.verification_threshold)),
             detector_model=env.get("PLANOGRAM_DETECTOR_MODEL", cls.detector_model),
             embedding_model=env.get("PLANOGRAM_EMBEDDING_MODEL", cls.embedding_model),
         )

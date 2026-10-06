@@ -1,3 +1,4 @@
+from dataclasses import replace
 from typing import Any
 
 import pytest
@@ -7,13 +8,17 @@ from conftest import (
     MANAGER,
     OPERATOR,
     VIEWER,
+    FakePersonBlurrer,
     FakeRecognizer,
     empty,
     register_fixture,
     shelf_row,
     upload_photo,
 )
+from planogram.app import create_app
+from planogram.jobs import InlineJobRunner
 from planogram.recognition import EmptyRegion, Recognition, RecognizedFacing
+from planogram.settings import Settings
 from test_extraction import stock_catalogue
 from test_review import draft_from
 
@@ -298,6 +303,88 @@ def test_absent_facings_beyond_the_empty_space_are_a_wrong_facing_count(
     result = check(client, recognizer, fixture, shelf_row(1, "A") + shelf_row(1, "B", "B", start=2), [empty(1, 1, 1)])
 
     assert kinds(result) == [("Wrong Facing Count", "A", 1), ("Gap", "A", 1), ("Wrong Facing Count", "B", 1)]
+
+
+def test_a_gap_recognition_is_not_confident_of_is_unverified_not_reported(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "A", "B", "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A") + shelf_row(1, "B", "B", start=3), [empty(1, 1, 2, confidence=0.3)])
+
+    assert result["deviations"] == []
+    assert result["unverified"] == [{"shelf": 1, "box": {"x": 50, "y": 300, "w": 100, "h": 100}, "confidence": 0.3}]
+    assert result["compliance_score"] == 1.0
+    assert result["coverage"] == pytest.approx(3 / 5)
+
+
+def test_facings_recognition_is_not_confident_are_in_place_are_left_out_of_the_score(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A", "A", confidence=0.4), [empty(1, 2, 1)])
+
+    assert kinds(result) == [("Gap", "B", 1)]
+    assert [a["box"] for a in result["unverified"]] == [{"x": 0, "y": 300, "w": 100, "h": 100}]
+    assert result["compliance_score"] == 0.0
+    assert result["coverage"] == pytest.approx(1 / 3)
+
+
+def test_a_product_absent_behind_something_recognition_is_not_confident_of_is_unverified(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "B", "C"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A") + shelf_row(1, "X", start=1, confidence=0.4) + shelf_row(1, "C", start=2))
+
+    assert result["deviations"] == []
+    assert result["unverified"] == [{"shelf": 1, "box": {"x": 50, "y": 300, "w": 50, "h": 100}, "confidence": 0.4}]
+    assert result["compliance_score"] == 1.0
+    assert result["coverage"] == pytest.approx(2 / 3)
+
+
+def test_a_misplaced_product_recognition_is_not_confident_of_is_unverified(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "B"), shelf_row(2, "C"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A") + shelf_row(2, "C") + shelf_row(2, "B", start=1, confidence=0.4))
+
+    assert result["deviations"] == []
+    assert [(a["shelf"], a["box"]["x"]) for a in result["unverified"]] == [(2, 50)]
+    assert result["compliance_score"] == 1.0
+    assert result["coverage"] == pytest.approx(2 / 3)
+
+
+def test_a_product_recognition_is_not_confident_of_does_not_push_others_out_of_place(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "B", "C"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "B", confidence=0.3) + shelf_row(1, "A", "C", start=1))
+
+    assert result["deviations"] == []
+    assert [a["box"]["x"] for a in result["unverified"]] == [0]
+    assert result["compliance_score"] == 1.0
+    assert result["coverage"] == pytest.approx(2 / 3)
+
+
+def test_the_unverified_threshold_is_configurable(
+    settings: Settings, blurrer: FakePersonBlurrer, recognizer: FakeRecognizer
+) -> None:
+    app = create_app(replace(settings, verification_threshold=0.2), blurrer=blurrer, recognizer=recognizer, jobs=InlineJobRunner())
+    with TestClient(app) as client:
+        stock_catalogue(client, "A", "B")
+        fixture = register_fixture(client)
+        approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "A", "B", "B"))
+
+        result = check(client, recognizer, fixture, shelf_row(1, "A") + shelf_row(1, "B", "B", start=3), [empty(1, 1, 2, confidence=0.3)])
+
+    assert kinds(result) == [("Gap", "A", 2)]
+    assert result["unverified"] == []
+    assert result["compliance_score"] == pytest.approx(3 / 5)
+    assert result["coverage"] == 1.0
 
 
 def test_a_product_in_its_planned_place_is_not_misplaced_when_its_neighbours_swap(

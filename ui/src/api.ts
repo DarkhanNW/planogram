@@ -200,6 +200,12 @@ export interface Deviation {
   confidence: number
 }
 
+export interface UnverifiedArea {
+  shelf: number
+  box: Box
+  confidence: number
+}
+
 export interface ComplianceCheck {
   id: string
   shelf_photo_id: string
@@ -209,6 +215,9 @@ export interface ComplianceCheck {
   bay: number
   submitted_by: string
   submitted_at: string
-  compliance_score: number
+  /** null when no planned Facing could be verified. */
+  compliance_score: number | null
+  coverage: number
   deviations: Deviation[]
+  unverified: UnverifiedArea[]
 }
