@@ -167,3 +167,16 @@ class Job(BaseModel):
 
 class ExtractionIn(Input):
     shelf_photo_id: str
+
+
+class BlockChange(Input):
+    sku: str | None = None
+    """The Product the Block is; set it to resolve an Unknown Product or correct a match."""
+    facings: int | None = Field(default=None, ge=1)
+
+
+class BlockIn(Input):
+    sku: str
+    facings: int = Field(ge=1)
+    position: int = Field(ge=0)
+    """Where on the Shelf to insert the Block: 0 is the leftmost."""
