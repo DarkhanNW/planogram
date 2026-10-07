@@ -198,10 +198,10 @@ def _shelf_deviations(shelf: _Shelf, planned_skus: set[str]) -> list[_Finding]:
     # neighbour spreading. It is reported once, as the short Block's Missing or Wrong Facing
     # Count. Missing Blocks take their neighbours' extra Facings first; a Block in place only
     # from a neighbour in place next to it, with nothing else stocked between them.
-    missing = [
+    missing_blocks = [
         (p, taken) for p in plan if p.observed is None and p.missing > 0 for taken in [_taken_by(p, segments)] if taken
     ]
-    spread_into = [(p, p.neighbours) for p, _ in missing] + [
+    spread_into = [(p, p.neighbours) for p, _ in missing_blocks] + [
         (p, _neighbours_in_place(k, plan, segments)) for k, p in enumerate(plan) if p.segment is not None and p.missing > 0
     ]
     for p, neighbours in spread_into:
@@ -224,7 +224,7 @@ def _shelf_deviations(shelf: _Shelf, planned_skus: set[str]) -> list[_Finding]:
             kind=DeviationKind.MISSING, sku=p.block.sku, facings=p.missing, planned=p.position, observed=None,
             box=Box.union([s.box for s in taken]), confidence=min(s.confidence for s in taken),
         ), p.missing)
-        for p, taken in missing
+        for p, taken in missing_blocks
     ] + [
         _Finding(Deviation(
             kind=DeviationKind.WRONG_FACING_COUNT, sku=p.block.sku, facings=p.extra or p.missing, planned=p.position,

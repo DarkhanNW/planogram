@@ -142,18 +142,22 @@ def planned_shelves(shelves: list[LabelledShelf]) -> list[Shelf]:
     ]
 
 
+UNKNOWN_PRODUCT = "Unknown Product"
+"""How a Block or Deviation with no SKU is printed."""
+
+
 def print_result(result: PhotoResult) -> None:
     print(f"{result.photo}{' [smoke]' if result.smoke else ''} ({result.seconds} s)")
     if result.broken:
         print(f"  BROKEN: {result.broken}")
     for shelf in sorted(result.extracted, key=lambda s: s["number"]):
-        blocks = ", ".join(f"{b['sku'] or 'Unknown'} x{b['facings']}" for b in shelf["blocks"])
+        blocks = ", ".join(f"{b['sku'] or UNKNOWN_PRODUCT} x{b['facings']}" for b in shelf["blocks"])
         print(f"  Shelf {shelf['number']}: {blocks or '(empty)'}")
     if result.deviations is not None:
         score = result.compliance_score
         print(f"  Compliance Score {'n/a' if score is None else f'{score:.0%}'}, Coverage {result.coverage:.0%}")
         for d in result.deviations:
-            print(f"  {d['kind']}: {d['sku'] or 'Unknown'} on Shelf {d['shelf']} ({d['facings']} Facings)")
+            print(f"  {d['kind']}: {d['sku'] or UNKNOWN_PRODUCT} on Shelf {d['shelf']} ({d['facings']} Facings)")
     c = result.counts
     if not result.smoke and not result.broken:
         print(

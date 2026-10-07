@@ -14,7 +14,7 @@ const TABS: { route: Route; label: string }[] = [
   { route: { page: 'catalogue' }, label: 'Product Catalogue' },
   { route: { page: 'photos' }, label: 'Shelf Photos' },
   { route: { page: 'planograms' }, label: 'Planograms' },
-  { route: { page: 'history' }, label: 'Score History' },
+  { route: { page: 'history' }, label: 'Score history' },
 ]
 
 function render(route: Route) {

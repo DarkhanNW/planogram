@@ -7,7 +7,7 @@ from typing import TypeAlias
 from planogram.context import Context
 from planogram.errors import NotFound
 from planogram.models import BayLayout, PlanogramChange, PlanogramStatus, ScoreHistory, ScorePoint
-from planogram.repository import as_utc
+from planogram.times import as_utc
 
 
 def score_history(

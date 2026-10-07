@@ -6,7 +6,7 @@ import threading
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
-from datetime import UTC, datetime
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -21,6 +21,7 @@ from planogram.models import (
     ShelfPhoto,
     Store,
 )
+from planogram.times import as_utc
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS stores (
@@ -78,22 +79,18 @@ CREATE TABLE IF NOT EXISTS jobs (
 );
 """
 
-SHELF_PHOTOS = """
+_SHELF_PHOTOS = """
 SELECT s.*, (
     SELECT p.id FROM planograms p, json_each(p.document, '$.bays') b
-    WHERE p.status = 'Approved' AND json_extract(b.value, '$.shelf_photo_id') = s.id
+    WHERE p.status = ? AND json_extract(b.value, '$.shelf_photo_id') = s.id
 ) AS approved_planogram_id
 FROM shelf_photos s"""
-"""Shelf Photos with the Approved Planogram extracted from each, if any."""
+"""Shelf Photos with the Approved Planogram extracted from each, if any; binds the Approved status
+first, so query it through ``Repository._shelf_photos``."""
 
 
 def new_id() -> str:
     return uuid.uuid4().hex
-
-
-def as_utc(t: datetime) -> datetime:
-    """``t`` in UTC; a time without a zone is taken to be UTC already."""
-    return t.replace(tzinfo=UTC) if t.tzinfo is None else t.astimezone(UTC)
 
 
 class Repository:
@@ -211,19 +208,20 @@ class Repository:
         )
 
     def get_shelf_photo(self, photo_id: str) -> ShelfPhoto | None:
-        r = self._one(f"{SHELF_PHOTOS} WHERE s.id = ?", photo_id)
-        return _shelf_photo(r) if r else None
+        rows = self._shelf_photos("WHERE s.id = ?", photo_id)
+        return rows[0] if rows else None
 
     def list_shelf_photos(self, fixture_id: str) -> list[ShelfPhoto]:
-        rows = self._all(f"{SHELF_PHOTOS} WHERE s.fixture_id = ? ORDER BY s.uploaded_at DESC", fixture_id)
-        return [_shelf_photo(r) for r in rows]
+        return self._shelf_photos("WHERE s.fixture_id = ? ORDER BY s.uploaded_at DESC", fixture_id)
 
     def list_shelf_photos_with_image_uploaded_before(self, cutoff: datetime) -> list[ShelfPhoto]:
         """Shelf Photos uploaded at or before ``cutoff`` whose image has not been deleted yet."""
-        rows = self._all(
-            f"{SHELF_PHOTOS} WHERE s.uploaded_at <= ? AND s.image_key IS NOT NULL ORDER BY s.uploaded_at",
-            _stored_time(cutoff),
+        return self._shelf_photos(
+            "WHERE s.uploaded_at <= ? AND s.image_key IS NOT NULL ORDER BY s.uploaded_at", _stored_time(cutoff)
         )
+
+    def _shelf_photos(self, clauses: str, *params: Any) -> list[ShelfPhoto]:
+        rows = self._all(f"{_SHELF_PHOTOS} {clauses}", PlanogramStatus.APPROVED.value, *params)
         return [_shelf_photo(r) for r in rows]
 
     def clear_shelf_photo_image(self, photo_id: str) -> None:

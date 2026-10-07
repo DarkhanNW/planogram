@@ -7,7 +7,8 @@ import numpy as np
 from planogram.geometry import Box
 from planogram.models import Deviation, DeviationKind, UnverifiedArea
 
-# BGR, matching the development UI.
+# BGR, matching the development UI, except Missing: the UI draws it in the same red as
+# Unexpected with a dashed border, and outlines here are solid, so Missing gets its own colour.
 KIND_COLOURS = {
     DeviationKind.GAP: (9, 83, 180),
     DeviationKind.MISSING: (93, 24, 190),
