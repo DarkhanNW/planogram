@@ -14,8 +14,11 @@ goes to any other planned Block on the Shelf still short of Facings. Each run of
 a Block claims is one Gap. A planned Block with Facings absent beyond the empty space it
 claimed is Missing when nothing of it is in place, its space taken by something else, and
 otherwise has a Wrong Facing Count; so does a paired Block with more Facings than planned,
-unless they fill the space of a Missing neighbour. Anything observed that the Bay's plan does
-not hold, including Unknown Products, is Unexpected.
+unless they fill the space of a neighbour short of Facings, with nothing else stocked between
+them. A neighbour spreading into a short
+Block's space is one cause, reported once as that Block's Missing or Wrong Facing Count; only
+the spreading Block's Facings beyond what its neighbours lack are its own Wrong Facing Count.
+Anything observed that the Bay's plan does not hold, including Unknown Products, is Unexpected.
 
 Precision first: every observed run whose confidence is below the threshold is an Unverified
 area. It never pairs, so it cannot confirm a Product in place or push others out of theirs. A
@@ -191,14 +194,19 @@ def _shelf_deviations(shelf: _Shelf, planned_skus: set[str]) -> list[_Finding]:
         unclaimed += _claim(plan[max(left_p, 0) : right_p + 1], empty)
     _claim(plan, unclaimed)
 
-    # A Missing Block's space taken by the extra Facings of a neighbour is one cause: the
-    # neighbour spreading. It is reported once, as Missing.
+    # A short Block's space taken by the extra Facings of a neighbour is one cause: the
+    # neighbour spreading. It is reported once, as the short Block's Missing or Wrong Facing
+    # Count. Missing Blocks take their neighbours' extra Facings first; a Block in place only
+    # from a neighbour in place next to it, with nothing else stocked between them.
     missing = [
         (p, taken) for p in plan if p.observed is None and p.missing > 0 for taken in [_taken_by(p, segments)] if taken
     ]
-    for p, _ in missing:
+    spread_into = [(p, p.neighbours) for p, _ in missing] + [
+        (p, _neighbours_in_place(k, plan, segments)) for k, p in enumerate(plan) if p.segment is not None and p.missing > 0
+    ]
+    for p, neighbours in spread_into:
         need = p.missing
-        for n in p.neighbours:
+        for n in neighbours:
             if 0 <= n < len(plan):
                 take = min(need, plan[n].extra)
                 plan[n].extra -= take
@@ -241,6 +249,20 @@ def _taken_by(p: _PlannedBlock, segments: list[Segment]) -> list[Segment]:
     left, right = p.stretch
     taken = [s for s in segments[left + 1 : right] if not s.empty]
     return taken or [segments[i] for i in (left, right) if 0 <= i < len(segments)]
+
+
+def _neighbours_in_place(k: int, plan: list[_PlannedBlock], segments: list[Segment]) -> tuple[int, ...]:
+    """The planned Blocks either side of the paired Block ``k`` that are in place next to it, with
+    nothing but empty space observed between them."""
+    def side_by_side(a: int, b: int) -> bool:
+        return all(segments[i].empty for i in range(a + 1, b))
+
+    here = plan[k].segment
+    assert here is not None
+    return tuple(
+        n for n in (k - 1, k + 1)
+        if 0 <= n < len(plan) and (there := plan[n].segment) is not None and side_by_side(min(here, there), max(here, there))
+    )
 
 
 def _claim(claimants: list[_PlannedBlock], empty: list[_EmptyFacing]) -> list[_EmptyFacing]:

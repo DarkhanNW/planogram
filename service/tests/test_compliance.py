@@ -199,23 +199,58 @@ def test_a_planned_product_whose_space_is_taken_by_something_else_is_missing(
     assert result["compliance_score"] == pytest.approx(2 / 4)
 
 
-def test_a_product_in_place_with_a_changed_facing_count_is_a_wrong_facing_count(
+def test_a_product_in_place_with_fewer_facings_is_a_wrong_facing_count(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "A", "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A", "A", "B"))
+
+    assert kinds(result) == [("Wrong Facing Count", "A", 1)]
+    [fewer] = result["deviations"]
+    assert (fewer["planned"], fewer["observed"]) == (
+        {"bay": 1, "shelf": 1, "order": 1, "facings": 3},
+        {"bay": 1, "shelf": 1, "order": 1, "facings": 2},
+    )
+    assert fewer["box"] == {"x": 0, "y": 300, "w": 100, "h": 100}
+    assert result["compliance_score"] == pytest.approx(3 / 4)
+
+
+def test_a_product_in_place_with_more_facings_is_a_wrong_facing_count(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A", "A", "B", "B"))
+
+    assert kinds(result) == [("Wrong Facing Count", "B", 1)]
+    [more] = result["deviations"]
+    assert (more["planned"]["facings"], more["observed"]["facings"]) == (1, 2)
+    assert more["box"] == {"x": 100, "y": 300, "w": 100, "h": 100}
+    assert result["compliance_score"] == 1.0
+
+
+def test_a_neighbour_spreading_into_the_space_of_a_product_in_place_is_only_its_wrong_facing_count(
     client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
 ) -> None:
     approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "A", "B"))
 
     result = check(client, recognizer, fixture, shelf_row(1, "A", "A", "B", "B"))
 
-    assert kinds(result) == [("Wrong Facing Count", "A", 1), ("Wrong Facing Count", "B", 1)]
-    fewer, more = result["deviations"]
-    assert (fewer["planned"], fewer["observed"]) == (
-        {"bay": 1, "shelf": 1, "order": 1, "facings": 3},
-        {"bay": 1, "shelf": 1, "order": 1, "facings": 2},
-    )
-    assert fewer["box"] == {"x": 0, "y": 300, "w": 100, "h": 100}
-    assert (more["planned"]["facings"], more["observed"]["facings"]) == (1, 2)
-    assert more["box"] == {"x": 100, "y": 300, "w": 100, "h": 100}
+    assert kinds(result) == [("Wrong Facing Count", "A", 1)]
     assert result["compliance_score"] == pytest.approx(3 / 4)
+
+
+def test_a_neighbour_spreading_further_than_the_space_it_took_is_a_wrong_facing_count_for_the_rest(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "A", "B", "C"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A", "A", "B", "B", "B", "C"))
+
+    assert kinds(result) == [("Wrong Facing Count", "A", 1), ("Wrong Facing Count", "B", 1)]
+    assert result["deviations"][1]["observed"]["facings"] == 3
+    assert result["compliance_score"] == pytest.approx(4 / 5)
 
 
 def test_a_neighbour_spreading_into_the_space_of_an_absent_product_is_only_missing(
@@ -227,6 +262,16 @@ def test_a_neighbour_spreading_into_the_space_of_an_absent_product_is_only_missi
 
     assert kinds(result) == [("Missing", "B", 1)]
     assert result["compliance_score"] == pytest.approx(3 / 4)
+
+
+def test_a_neighbour_beyond_something_unexpected_in_the_space_of_a_product_in_place_is_its_own_wrong_facing_count(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "A", "A", "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A", "A", "X", "B", "B"))
+
+    assert kinds(result) == [("Wrong Facing Count", "A", 1), ("Unexpected", "X", 1), ("Wrong Facing Count", "B", 1)]
 
 
 def test_a_product_moved_to_another_shelf_is_misplaced(
@@ -339,7 +384,8 @@ def test_absent_facings_beyond_the_empty_space_are_a_wrong_facing_count(
 
     result = check(client, recognizer, fixture, shelf_row(1, "A") + shelf_row(1, "B", "B", start=2), [empty(1, 1, 1)])
 
-    assert kinds(result) == [("Wrong Facing Count", "A", 1), ("Gap", "A", 1), ("Wrong Facing Count", "B", 1)]
+    assert kinds(result) == [("Wrong Facing Count", "A", 1), ("Gap", "A", 1)]
+    assert result["compliance_score"] == pytest.approx(2 / 4)
 
 
 def test_a_gap_recognition_is_not_confident_of_is_unverified_not_reported(
