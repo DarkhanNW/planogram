@@ -365,6 +365,20 @@ def test_a_product_misplaced_from_a_shelf_with_nothing_observed_leaves_that_shel
     assert result["coverage"] == pytest.approx(1 / 2)
 
 
+def test_a_misplaced_product_stands_in_for_its_block_on_an_observed_shelf_not_a_nearer_shelf_with_nothing_observed(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A", "B"), shelf_row(3, "C"), shelf_row(4, "A"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "B") + shelf_row(3, "C", "A"))
+
+    [misplaced] = result["deviations"]
+    assert (misplaced["kind"], misplaced["sku"], misplaced["facings"]) == ("Misplaced", "A", 1)
+    assert misplaced["planned"] == {"bay": 1, "shelf": 1, "order": 1, "facings": 1}
+    assert result["compliance_score"] == pytest.approx(2 / 3)
+    assert result["coverage"] == pytest.approx(3 / 4)
+
+
 def test_with_no_planned_shelf_observed_there_is_no_score(
     client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
 ) -> None:

@@ -28,7 +28,8 @@ Unverified: they count towards neither the Compliance Score nor Coverage's verif
 A planned Shelf with nothing observed on it at all, not even empty space, is one recognition
 did not see, as when the Shelf Photo is cropped. All its planned Facings are Unverified too,
 and a Misplaced Block of the same Product elsewhere never stands in for them: they may well be
-in place. The Shelf is not listed as an Unverified area: with nothing observed there, there is
+in place. It stands in for a planned Block on an observed Shelf instead, and names one on a
+Shelf with nothing observed only when the Product is planned nowhere else. The Shelf is not listed as an Unverified area: with nothing observed there, there is
 no box to give it."""
 
 from dataclasses import dataclass, field
@@ -157,8 +158,9 @@ def _paired_shelf(bay: int, number: int, blocks: list[Block], segments: list[Seg
 
 def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[_Finding]:
     """Each observed Block of a planned Product off its planned Position is Misplaced, standing
-    in for the nearest planned Block of that Product short of Facings, or else the nearest; never
-    for one on an unseen Shelf."""
+    in for the nearest planned Block of that Product short of Facings, or else the nearest. A
+    planned Block on an unseen Shelf is named only when the Product is planned on no other
+    Shelf, and is never stood in for."""
     unseen = {s.number for s in shelves if s.unseen}
     findings = []
     for shelf in shelves:
@@ -168,7 +170,12 @@ def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[_Finding]:
                 continue
             planned = min(
                 (p for s in shelves for p in s.plan if p.block.sku == segment.sku),
-                key=lambda p: (p.missing <= 0, abs(p.position.shelf - shelf.number), abs(p.position.order - observed.order)),
+                key=lambda p: (
+                    p.position.shelf in unseen,
+                    p.missing <= 0,
+                    abs(p.position.shelf - shelf.number),
+                    abs(p.position.order - observed.order),
+                ),
             )
             standing_in = 0 if planned.position.shelf in unseen else max(0, min(planned.missing, segment.facings))
             planned.elsewhere += standing_in
