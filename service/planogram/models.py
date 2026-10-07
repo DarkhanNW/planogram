@@ -241,7 +241,7 @@ class Deviation(BaseModel):
     planned: Position | None
     """The planned Block's Position; None for something not in the Approved Planogram."""
     observed: Position | None
-    """The observed Block's Position; None when nothing of the planned Block is left."""
+    """The Position of the Segment it concerns; None when nothing of the planned Block is left."""
     box: Box
     """Where the Deviation is in the Shelf Photo."""
     confidence: float

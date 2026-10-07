@@ -44,7 +44,7 @@ A run of adjacent Facings of the same Product on one Shelf.
 _Avoid_: Group, cluster
 
 **Segment**:
-A run along a Shelf as seen in a Shelf Photo: Facings of one Product, one Unknown Product, or empty space, with how confident recognition was. Unlike a Block, it is observed rather than planned, and it can be empty.
+A run along a Shelf as seen in a Shelf Photo: Facings of one Product, one Unknown Product, or empty space, with how confident recognition was. Unlike a Block, it can be empty.
 _Avoid_: Observed block
 
 **Position**:

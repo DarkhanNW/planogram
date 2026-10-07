@@ -2,9 +2,9 @@
 Approved Planogram, producing Deviations and the Compliance Score. Each cause is reported as
 exactly one Deviation.
 
-On each Shelf, planned Blocks are paired in order with observed Blocks of the same Product
-(the longest such pairing). A paired Block is in its correct Position; its Facings up to the
-planned count are present. An observed Block of a planned Product left unpaired is Misplaced,
+On each Shelf, planned Blocks are paired in order with Segments of the same Product (the
+longest such pairing). A paired Block is in its correct Position; its Facings up to the
+planned count are present. A Segment of a planned Product left unpaired is Misplaced,
 standing in for the nearest planned Block of that Product still short of Facings (or, when
 none is short, the nearest one).
 
@@ -70,7 +70,7 @@ class _PlannedBlock:
     position: Position
     observed: Position | None = None
     segment: int | None = None
-    """The observed Block it is paired with."""
+    """The Segment it is paired with."""
     present: int = 0
     elsewhere: int = 0
     """Facings standing Misplaced elsewhere in the Bay."""
@@ -157,7 +157,7 @@ def _paired_shelf(bay: int, number: int, blocks: list[Block], segments: list[Seg
 
 
 def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[_Finding]:
-    """Each observed Block of a planned Product off its planned Position is Misplaced, standing
+    """Each Segment of a planned Product off its planned Position is Misplaced, standing
     in for the nearest planned Block of that Product short of Facings, or else the nearest. A
     planned Block on an unseen Shelf is named only when the Product is planned on no other
     Shelf, and is never stood in for."""
@@ -283,7 +283,7 @@ def _claim(claimants: list[_PlannedBlock], empty: list[_EmptyFacing]) -> list[_E
 
 
 def _pair(planned: list[str | None], observed: list[tuple[int, str | None]]) -> list[tuple[int, int]]:
-    """The longest in-order pairing of planned Blocks with observed Blocks of the same Product,
+    """The longest in-order pairing of planned Blocks with Segments of the same Product,
     as (planned index, segment index) pairs; among equally long ones, the one keeping Blocks
     closest to their planned order. Unknown Products never pair."""
     n, m = len(planned), len(observed)
