@@ -41,7 +41,11 @@ _Avoid_: Slot, spot
 
 **Block**:
 A run of adjacent Facings of the same Product on one Shelf.
-_Avoid_: Group, cluster, segment
+_Avoid_: Group, cluster
+
+**Segment**:
+A run along a Shelf as seen in a Shelf Photo: Facings of one Product, one Unknown Product, or empty space, with how confident recognition was. Unlike a Block, it is observed rather than planned, and it can be empty.
+_Avoid_: Observed block
 
 **Position**:
 Where a Block sits in a Planogram: its Bay, its Shelf, its order from the left on that Shelf, and its number of Facings.
