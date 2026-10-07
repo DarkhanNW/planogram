@@ -6,7 +6,7 @@ from planogram.access import Actor
 from planogram.context import Context
 from planogram.errors import Conflict
 from planogram.jobs import new_job, start_job
-from planogram.layout import build_layout, to_shelves
+from planogram.layout import ObservedShelf, build_layout, to_shelves
 from planogram.models import BayLayout, Job, JobKind, Product, Shelf, ShelfPhoto
 from planogram.photos import get_shelf_photo, load_shelf_photo_image
 from planogram.planograms import open_draft, with_bay
@@ -35,4 +35,9 @@ def extract(ctx: Context, photo: ShelfPhoto) -> str:
 
 def extract_shelves(recognizer: Recognizer, image: np.ndarray, products: list[Product]) -> list[Shelf]:
     """The Shelves of the Bay a (blurred) Shelf Photo shows, matched against the whole Product Catalogue."""
-    return to_shelves(build_layout(recognizer.recognize(image, products, [])))
+    return to_shelves(observe_shelves(recognizer, image, products))
+
+
+def observe_shelves(recognizer: Recognizer, image: np.ndarray, products: list[Product]) -> list[ObservedShelf]:
+    """What Extraction sees on each Shelf, empty regions included."""
+    return build_layout(recognizer.recognize(image, products, []))

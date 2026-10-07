@@ -20,8 +20,9 @@ from typing import Any
 from planogram.blurring import OpenCvPersonBlurrer, PersonBlurrer, blur_people
 from planogram.catalogue import import_catalogue
 from planogram.compliance import check_bay
-from planogram.extraction import extract_shelves
+from planogram.extraction import observe_shelves
 from planogram.images import LocalImageStore
+from planogram.layout import to_shelves
 from planogram.models import BayLayout, Block, Product, Shelf
 from planogram.photos import decode_image
 from planogram.recognition import Recognizer
@@ -41,7 +42,8 @@ class PhotoResult:
     broken: str | None = None
     """Why the photo did not run through the pipeline, or why a smoke case is broken."""
     extracted: list[dict[str, Any]] = field(default_factory=list)
-    """The extracted Shelves: number, and Blocks with SKU and facing count."""
+    """The extracted Shelves: number, and runs from the left with SKU, facing count and whether
+    the run is empty space. Empty runs are shown but are not Blocks."""
     deviations: list[dict[str, Any]] | None = None
     """None when the photo has no reference Planogram to check against."""
     compliance_score: float | None = None
@@ -112,8 +114,9 @@ def evaluate_case(
     try:
         original = decode_image(case.photo.read_bytes())
         image = blur_people(original, blurrer.find_people(original))
-        extracted = extract_shelves(recognizer, image, products)
-        result.extracted = [s.model_dump(include={"number": True, "blocks": {"__all__": {"sku", "facings"}}}) for s in extracted]
+        observed = observe_shelves(recognizer, image, products)
+        extracted = to_shelves(observed)
+        result.extracted = [s.model_dump(include={"number": True, "segments": {"__all__": {"sku", "facings", "empty"}}}) for s in observed]
         if labels.shelves is not None:
             result.counts += score_extraction(labels.shelves, extracted)
         if labels.reference is not None:
@@ -127,7 +130,9 @@ def evaluate_case(
             ]
             result.compliance_score, result.coverage = comparison.compliance_score, comparison.coverage
             result.counts += score_deviations(labels.reference.deviations, comparison.deviations)
-        if labels.smoke and not any(s.blocks for s in extracted):
+        if labels.smoke and not extracted:
+            result.broken = "no Shelves found"
+        elif labels.smoke and not any(s.blocks for s in extracted):
             result.broken = "no Blocks extracted"
     except Exception as e:  # noqa: BLE001 - a broken photo is reported, not fatal to the run
         result.broken = f"{type(e).__name__}: {e}"
@@ -151,8 +156,8 @@ def print_result(result: PhotoResult) -> None:
     if result.broken:
         print(f"  BROKEN: {result.broken}")
     for shelf in sorted(result.extracted, key=lambda s: s["number"]):
-        blocks = ", ".join(f"{b['sku'] or UNKNOWN_PRODUCT} x{b['facings']}" for b in shelf["blocks"])
-        print(f"  Shelf {shelf['number']}: {blocks or '(empty)'}")
+        runs = ", ".join(f"{run_name(s)} x{s['facings']}" for s in shelf["segments"])
+        print(f"  Shelf {shelf['number']}: {runs or '(nothing seen)'}")
     if result.deviations is not None:
         score = result.compliance_score
         print(f"  Compliance Score {'n/a' if score is None else f'{score:.0%}'}, Coverage {result.coverage:.0%}")
@@ -167,6 +172,10 @@ def print_result(result: PhotoResult) -> None:
             f"reported / {c.expected_deviations} expected"
         )
     print()
+
+
+def run_name(segment: dict[str, Any]) -> str:
+    return "(empty)" if segment["empty"] else segment["sku"] or UNKNOWN_PRODUCT
 
 
 def print_summary(total: Counts, photos: int) -> dict[str, Any]:

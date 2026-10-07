@@ -47,7 +47,7 @@ class Reference(Label):
 class PhotoLabels(Label):
     smoke: bool = False
     """A smoke case runs through the pipeline to catch gross breakage but is left out of the
-    metrics, e.g. the mock-up drinks Fixture image."""
+    metrics, e.g. the mock-up Bay in tests/fixtures/mockup."""
     shelves: list[LabelledShelf] | None = None
     """The Bay as it stands in the photo; may be left out only for a smoke case."""
     reference: Reference | None = None

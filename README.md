@@ -58,6 +58,9 @@ cd service
 .venv/Scripts/python -m evaluation path/to/labelled-set
 ```
 
+The same command on `tests/fixtures/mockup` is the Extraction smoke test. It runs the real
+Recognizer on a mock-up Bay and prints the Draft Planogram so you can check it by eye.
+
 ## Development UI
 
 ```sh

@@ -11,11 +11,12 @@ cd service
 .venv/Scripts/python -m evaluation path/to/set [path/to/another-set ...] [--json results.json]
 ```
 
-For each photo it prints the extracted Shelves and, for photos with a reference Planogram,
-the Compliance Check's Deviations, Compliance Score and Coverage. Then it prints the pooled
-metrics. `--json` also saves the settings, per-photo results and totals, so you can compare
-runs. Thresholds and models come from the same `PLANOGRAM_*` environment variables as the
-service (see the top-level README), so you can try a change without editing code:
+For each photo it prints the extracted Shelves, with empty space shown as `(empty)` runs,
+and, for photos with a reference Planogram, the Compliance Check's Deviations, Compliance
+Score and Coverage. Then it prints the pooled metrics. `--json` also saves the settings,
+per-photo results and totals, so you can compare runs. Thresholds and models come from the
+same `PLANOGRAM_*` environment variables as the service (see the top-level README), so you
+can try a change without editing code:
 
 ```sh
 PLANOGRAM_MATCH_THRESHOLD=0.75 .venv/Scripts/python -m evaluation path/to/set
@@ -34,6 +35,24 @@ Each photo goes through the service's own pipeline:
    reference's Products are matched first and the rest of the Product Catalogue is the fallback.
 
 Each set gets a fresh temporary Product Catalogue, imported from its own `catalogue.csv`.
+
+## Smoke test
+
+`tests/fixtures/mockup/` is a smoke set: a mock-up grocery Bay, fully stocked and partly
+emptied, run with the real Recognizer to catch gross breakage of the detector, Shelf
+assignment, matching and Layout Builder. It is not a measurement.
+
+```sh
+cd service
+.venv/Scripts/python -m evaluation tests/fixtures/mockup
+```
+
+Read the printed Draft Planograms by eye. The exit code is 1 if either photo raises an error,
+finds no Shelves or extracts no Blocks. `source/` holds the original two-Bay images. The
+photos are their left Bays, and the catalogue images are single Facings cropped from
+`source/full.jpeg`. Only those seven Products are in the catalogue, so everything else
+should come out as Unknown Product or, for a lookalike such as
+Barilla Fusilli, as the catalogued Product it resembles.
 
 ## Labelled set format
 
@@ -89,9 +108,9 @@ Each photo's `.json` holds its labels:
   A planned Block's empty space split into separate runs by other Shelf contents, such as an
   Unknown Facing, is one Gap per run, as the Compliance Check reports it: give one expected
   Gap for each run.
-- `"smoke": true` marks a smoke case, such as the mock-up drinks Fixture image. It runs
+- `"smoke": true` marks a smoke case, such as the mock-up Bay (see Smoke test). It runs
   through the pipeline but is left out of the metrics, and `shelves` may be left out. It is
-  broken when it raises an error or extracts no Blocks.
+  broken when it raises an error, finds no Shelves or extracts no Blocks.
 
 ## Metrics
 
