@@ -20,7 +20,13 @@ not hold, including Unknown Products, is Unexpected.
 Precision first: every observed run whose confidence is below the threshold is an Unverified
 area. It never pairs, so it cannot confirm a Product in place or push others out of theirs. A
 Deviation resting on one is not reported, and the planned Facings it accounts for are
-Unverified: they count towards neither the Compliance Score nor Coverage's verified share."""
+Unverified: they count towards neither the Compliance Score nor Coverage's verified share.
+
+A planned Shelf with nothing observed on it at all, not even empty space, is one recognition
+did not see, as when the Shelf Photo is cropped. All its planned Facings are Unverified too,
+and a Misplaced Block of the same Product elsewhere never stands in for them: they may well be
+in place. The Shelf is not listed as an Unverified area: with nothing observed there, there is
+no box to give it."""
 
 from dataclasses import dataclass, field
 from itertools import groupby
@@ -90,6 +96,11 @@ class _Shelf:
     """(planned index, segment index) of each planned Block in its correct Position."""
 
     @property
+    def unseen(self) -> bool:
+        """Nothing at all, not even empty space, was observed on it."""
+        return not self.segments
+
+    @property
     def unpaired(self) -> list[int]:
         paired = {s for _, s in self.pairs}
         return [i for i in self.stocked if i not in paired]
@@ -108,6 +119,7 @@ def compare(planned: BayLayout, observed: list[ObservedShelf], threshold: float)
         findings += _shelf_deviations(shelf, planned.skus)
     confident = [f for f in findings if f.deviation.confidence >= threshold]
     unverified = sum(f.planned_facings for f in findings if f.deviation.confidence < threshold)
+    unverified += sum(p.block.facings for s in shelves if s.unseen for p in s.plan)
 
     present = sum(p.present for s in shelves for p in s.plan)
     total = sum(p.block.facings for s in shelves for p in s.plan)
@@ -142,7 +154,9 @@ def _paired_shelf(bay: int, number: int, blocks: list[Block], segments: list[Seg
 
 def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[_Finding]:
     """Each observed Block of a planned Product off its planned Position is Misplaced, standing
-    in for the nearest planned Block of that Product short of Facings, or else the nearest."""
+    in for the nearest planned Block of that Product short of Facings, or else the nearest; never
+    for one on an unseen Shelf."""
+    unseen = {s.number for s in shelves if s.unseen}
     findings = []
     for shelf in shelves:
         for i in shelf.unpaired:
@@ -153,7 +167,7 @@ def _misplaced(shelves: list[_Shelf], planned_skus: set[str]) -> list[_Finding]:
                 (p for s in shelves for p in s.plan if p.block.sku == segment.sku),
                 key=lambda p: (p.missing <= 0, abs(p.position.shelf - shelf.number), abs(p.position.order - observed.order)),
             )
-            standing_in = max(0, min(planned.missing, segment.facings))
+            standing_in = 0 if planned.position.shelf in unseen else max(0, min(planned.missing, segment.facings))
             planned.elsewhere += standing_in
             findings.append(_Finding(Deviation(
                 kind=DeviationKind.MISPLACED, sku=segment.sku, facings=segment.facings, planned=planned.position,

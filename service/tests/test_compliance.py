@@ -285,7 +285,7 @@ def test_a_product_in_the_wrong_bay_is_unexpected_there_and_a_gap_or_missing_in_
     assert kinds(missing_in_bay_1) == [("Missing", "B", 1), ("Unexpected", "X", 1)]
 
 
-def test_a_shelf_with_nothing_observed_reports_nothing_missing_there(
+def test_a_shelf_with_nothing_observed_is_unverified(
     client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
 ) -> None:
     approve_plan(client, recognizer, fixture, shelf_row(1, "A"), shelf_row(2, "B"))
@@ -293,7 +293,43 @@ def test_a_shelf_with_nothing_observed_reports_nothing_missing_there(
     result = check(client, recognizer, fixture, shelf_row(1, "A"))
 
     assert result["deviations"] == []
+    assert result["unverified"] == []
+    assert result["compliance_score"] == 1.0
+    assert result["coverage"] == pytest.approx(1 / 2)
+
+
+def test_a_shelf_observed_as_empty_is_a_gap(client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A"), shelf_row(2, "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A"), [empty(2, 0, 1)])
+
+    assert kinds(result) == [("Gap", "B", 1)]
     assert result["compliance_score"] == pytest.approx(1 / 2)
+    assert result["coverage"] == 1.0
+
+
+def test_a_product_misplaced_from_a_shelf_with_nothing_observed_leaves_that_shelf_unverified(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A"), shelf_row(2, "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(1, "A", "B"))
+
+    assert kinds(result) == [("Misplaced", "B", 1)]
+    assert result["compliance_score"] == 1.0
+    assert result["coverage"] == pytest.approx(1 / 2)
+
+
+def test_with_no_planned_shelf_observed_there_is_no_score(
+    client: TestClient, recognizer: FakeRecognizer, fixture: dict[str, Any]
+) -> None:
+    approve_plan(client, recognizer, fixture, shelf_row(1, "A"), shelf_row(2, "B"))
+
+    result = check(client, recognizer, fixture, shelf_row(3, "X", "B"))
+
+    assert kinds(result) == [("Misplaced", "B", 1), ("Unexpected", "X", 1)]
+    assert result["compliance_score"] is None
+    assert result["coverage"] == 0.0
 
 
 def test_absent_facings_beyond_the_empty_space_are_a_wrong_facing_count(
