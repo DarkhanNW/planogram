@@ -2,7 +2,10 @@
 
 1. Detect: an off-the-shelf open-vocabulary detector (OWLv2) boxes every Facing; Shelves are
    found by clustering Facings on their bottom edges, plus any Shelf line (a long horizontal
-   edge) that no Facings stand on: an empty Shelf.
+   edge) that no Facings stand on: an empty Shelf. A Facing stacked on another Facing stands
+   on the Shelf of the Facing beneath it, not on a Shelf of its own: when it rests on a
+   Facing below, reaches down past the tops of the Facings on the Shelf below, or sits
+   between that Shelf's line and the next Shelf line up with no room for a Shelf of its own.
 2. Match: each Facing crop is described by an image embedding (DINOv2) plus a colour
    histogram and compared with the reference images of the candidate Products. A Facing whose
    best match is below the threshold, or does not clearly beat the runner-up, is an Unknown
@@ -51,6 +54,10 @@ LINE_CONTRAST = 60
 """Vertical brightness gradient (Sobel) a pixel needs to count towards a Shelf line."""
 NO_FACINGS_HEIGHT = 0.1
 """With no Facings to measure, a typical Facing is taken as this share of the photo's height."""
+STACK_GAP = 0.1
+"""A Facing whose bottom edge is at most this many typical Facing heights above the top of a
+Facing beneath it stands on that Facing. Facings on the Shelf above are further up, by at
+least the depth of the Shelf's front edge."""
 COLOUR_WEIGHT = 0.25
 """Share of the match similarity that comes from colour; the rest is the embedding."""
 
@@ -278,11 +285,12 @@ def find_shelf_lines(image: np.ndarray) -> list[ShelfLine]:
 
 def find_bay(image: np.ndarray, boxes: list[Box]) -> Bay:
     """The Bay's Shelves, stocked and empty, and its horizontal extent, from its Shelf lines
-    and the Facing boxes."""
+    and the Facing boxes. A Facing stacked on another stands on the Shelf of the Facing
+    beneath it, so a stack of two is two Facings on one Shelf (see ``_stocked_shelves``)."""
     height, width = image.shape[:2]
     lines = find_shelf_lines(image)
     typical_height = median(b.h for b in boxes) if boxes else NO_FACINGS_HEIGHT * height
-    stocked = _stocked_shelves(boxes, typical_height / 3)
+    stocked = _stocked_shelves(boxes, lines, typical_height)
     empty = _empty_shelves(lines, stocked, typical_height)
     shelves = sorted(stocked + empty, key=lambda s: s.bottom, reverse=True)
     for number, shelf in enumerate(shelves, start=1):
@@ -294,21 +302,63 @@ def find_bay(image: np.ndarray, boxes: list[Box]) -> Bay:
     return Bay(left=left, right=right, shelves=shelves)
 
 
-def _stocked_shelves(boxes: list[Box], tolerance: float) -> list[ShelfSpace]:
-    """Facings whose bottom edges sit together stand on one Shelf: a new Shelf starts wherever
-    consecutive bottom edges (from the bottom of the photo up) are further apart than
-    ``tolerance``. Unnumbered."""
+def _stocked_shelves(boxes: list[Box], lines: list[ShelfLine], typical_height: float) -> list[ShelfSpace]:
+    """Facings whose bottom edges sit together stand on one Shelf: going up from the bottom of
+    the photo, a Facing joins the Shelf below when its bottom edge is within a third of a
+    typical Facing of the last bottom edge standing on that Shelf. A Facing further up than
+    that is stacked on the Shelf below, rather than standing on a Shelf of its own, when any
+    of these holds:
+
+    - it stands on a Facing of that Shelf: it overlaps it by at least half the narrower width,
+      and its bottom edge is at most ``STACK_GAP`` of a typical Facing above that Facing's top;
+    - its bottom edge is lower than the top of some Facing on that Shelf by more than a third
+      of a typical Facing, so no Shelf could run along it;
+    - it lies between the Shelf line along the bottom of that Shelf and the next Shelf line
+      up, and those lines are too close together for a Shelf of its own between them: closer
+      than the height of that Shelf's Facings plus its own, plus a third of a typical Facing
+      for the Shelf's front edge.
+
+    A stacked Facing does not move the Shelf's bottom edge. Unnumbered."""
+    tolerance = typical_height / 3
+    line_ys = sorted(line.y for line in lines)
     groups: list[list[int]] = []
     previous = 0
     for i in sorted(range(len(boxes)), key=lambda i: boxes[i].bottom, reverse=True):
-        if not groups or previous - boxes[i].bottom > tolerance:
-            groups.append([])
-        groups[-1].append(i)
-        previous = boxes[i].bottom
+        box = boxes[i]
+        if groups and previous - box.bottom <= tolerance:
+            groups[-1].append(i)
+            previous = box.bottom
+        elif groups and _stacked(box, [boxes[j] for j in groups[-1]], line_ys, typical_height):
+            groups[-1].append(i)
+        else:
+            groups.append([i])
+            previous = box.bottom
     return [
         ShelfSpace(number=0, top=min(boxes[i].y for i in g), bottom=max(boxes[i].bottom for i in g), facings=g)
         for g in groups
     ]
+
+
+def _stacked(box: Box, below: list[Box], line_ys: list[int], typical_height: float) -> bool:
+    """Whether ``box`` is stacked on the Shelf whose Facing boxes are ``below``, rather than
+    standing on a Shelf of its own; see ``_stocked_shelves``."""
+    tolerance = typical_height / 3
+    top, bottom = min(other.y for other in below), max(other.bottom for other in below)
+    on_a_facing = any(
+        min(box.right, other.right) - max(box.x, other.x) >= min(box.w, other.w) / 2
+        and other.y - STACK_GAP * typical_height <= box.bottom
+        and box.y < other.y
+        for other in below
+    )
+    if on_a_facing or box.bottom > top + tolerance:
+        return True
+    # Shelf lines are often missed, so a missing line must never make a Facing stacked: only
+    # two lines too close together for another Shelf between them do.
+    line_under = [y for y in line_ys if abs(y - bottom) <= tolerance]
+    line_above = max((y for y in line_ys if y < bottom - tolerance), default=None)
+    if not line_under or line_above is None or line_above > box.y + tolerance:
+        return False
+    return max(line_under) - line_above < (bottom - top) + box.h + tolerance
 
 
 def _empty_shelves(lines: list[ShelfLine], stocked: list[ShelfSpace], typical_height: float) -> list[ShelfSpace]:
