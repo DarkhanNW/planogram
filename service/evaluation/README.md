@@ -2,8 +2,9 @@
 
 Runs the real recognition pipeline over a labelled set of real Shelf Photos and reports the
 MVP recognition metrics against their targets. Use it to measure every change to the models
-or thresholds. It is a measurement, not a test: `pytest` never runs it, and it needs the
-vision dependencies (`pip install -e ".[dev,vision]"`).
+or thresholds. It is a measurement, not a test: `pytest` runs only the unit tests of its
+scoring (`tests/test_scoring.py`), never the harness itself. It needs the vision dependencies
+(`pip install -e ".[dev,vision]"`).
 
 ```sh
 cd service
@@ -85,6 +86,9 @@ Each photo's `.json` holds its labels:
   or for Unexpected the Shelf it was found on. Follow "one cause, one Deviation" as the
   glossary defines the kinds. A planned Product whose space is taken by something else is
   one Missing, plus one Unexpected for what took the space if that is not in the reference.
+  A planned Block's empty space split into separate runs by other Shelf contents, such as an
+  Unknown Facing, is one Gap per run, as the Compliance Check reports it: give one expected
+  Gap for each run.
 - `"smoke": true` marks a smoke case, such as the mock-up drinks Fixture image. It runs
   through the pipeline but is left out of the metrics, and `shelves` may be left out. It is
   broken when it raises an error or extracts no Blocks.
@@ -118,9 +122,9 @@ same Product (or both Unknown Product). The pairing used is the longest one poss
   confidently wrong, so check the printed Shelves before reading a bad photo as a
   matching problem.
 - An Unknown Product is never confidently wrong. It costs identification only.
-- Deviations are matched on kind, Product and Shelf. Each distinct combination counts once
-  on each side, because the Compliance Check can report one cause as several Deviations of
-  the same kind, Product and Shelf. For example, a Gap split in two by an Unknown Facing is
-  still one Gap.
+- Deviations are matched one to one on kind, Product and Shelf. Every expected and every
+  reported Deviation counts, and each reported Deviation matches at most one expected
+  Deviation of the same kind, Product and Shelf. Reporting one cause as several Deviations
+  therefore costs precision, and reporting fewer than expected costs recall.
 - Unverified areas are not Deviations, so they never count against precision. They can
   cost recall.

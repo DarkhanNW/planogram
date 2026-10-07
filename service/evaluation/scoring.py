@@ -10,11 +10,13 @@ Unknown Products (and other fragments) between them, with the paired Block short
 labelled Facings. A fragment costs the facing count, not identity. An Unknown Product is
 never confidently wrong; it costs identification only.
 
-Deviations are matched on kind, Product and Shelf (the planned Shelf; for Unexpected, the
-Shelf it was found on). The Compliance Comparer may report one cause as several Deviations of
-the same kind, Product and Shelf (a Gap split by an Unknown Facing, say), so each distinct
-(kind, Product, Shelf) counts once on both sides."""
+Deviations are matched one to one on kind, Product and Shelf (the planned Shelf; for
+Unexpected, the Shelf it was found on). Every expected and every reported Deviation counts,
+and each reported Deviation pairs with at most one expected Deviation. So a report beyond
+the expected number of a (kind, Product, Shelf) costs precision, and one short of it costs
+recall: one cause reported as several Deviations shows up as a precision loss."""
 
+from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass, fields
 
@@ -73,9 +75,13 @@ def _fragment(j: int, skus: list[str | None], short: set[int]) -> bool:
 
 
 def score_deviations(expected: list[ExpectedDeviation], reported: list[Deviation]) -> Counts:
-    want = {(d.kind, d.sku, d.shelf) for d in expected}
-    got = {(d.kind, d.sku, shelf_of(d)) for d in reported}
-    return Counts(expected_deviations=len(want), reported_deviations=len(got), matched_deviations=len(want & got))
+    want = Counter((d.kind, d.sku, d.shelf) for d in expected)
+    got = Counter((d.kind, d.sku, shelf_of(d)) for d in reported)
+    return Counts(
+        expected_deviations=want.total(),
+        reported_deviations=got.total(),
+        matched_deviations=(want & got).total(),
+    )
 
 
 def shelf_of(deviation: Deviation) -> int:
