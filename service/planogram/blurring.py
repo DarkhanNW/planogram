@@ -1,6 +1,7 @@
 """Person Blurrer (ADR 0003): people in a Shelf Photo are found and blurred before anything
 is stored. Finding people sits behind ``PersonBlurrer`` so tests can script it."""
 
+from pathlib import Path
 from typing import Protocol
 
 import cv2
@@ -32,20 +33,23 @@ def blur_people(image: np.ndarray, people: list[Box]) -> np.ndarray:
 
 
 class OpenCvPersonBlurrer:
-    """Off-the-shelf detectors bundled with OpenCV, running inside the service: a HOG
-    pedestrian detector for bodies and Haar cascades for frontal and profile faces. Found
-    regions are padded, since missing part of a person is worse than blurring some shelf."""
+    """Off-the-shelf detectors run by OpenCV inside the service: a HOG pedestrian detector
+    for bodies, the YuNet CNN for faces (a frontal-face Haar cascade took round product
+    labels for faces) and a Haar cascade for profile faces. Found regions are padded, since
+    missing part of a person is worse than blurring some shelf."""
 
     PADDING = 0.15
+    # Product labels score up to about 0.4 and a real face about 0.9; YuNet's own default
+    # is 0.9, lowered here because a missed face is the worse mistake.
+    FACE_SCORE_THRESHOLD = 0.6
+    FACE_MODEL = Path(__file__).parent / "detectors" / "face_detection_yunet_2023mar.onnx"
 
     def __init__(self) -> None:
         self._hog = cv2.HOGDescriptor()
         self._hog.setSVMDetector(cv2.HOGDescriptor_getDefaultPeopleDetector())  # type: ignore[attr-defined]
+        self._faces = cv2.FaceDetectorYN.create(str(self.FACE_MODEL), "", (320, 320), self.FACE_SCORE_THRESHOLD)
         cascades = cv2.data.haarcascades  # type: ignore[attr-defined]
-        self._faces = [
-            cv2.CascadeClassifier(cascades + "haarcascade_frontalface_default.xml"),
-            cv2.CascadeClassifier(cascades + "haarcascade_profileface.xml"),
-        ]
+        self._profile_faces = cv2.CascadeClassifier(cascades + "haarcascade_profileface.xml")
 
     def find_people(self, image: np.ndarray) -> list[Box]:
         height, width = image.shape[:2]
@@ -56,9 +60,12 @@ class OpenCvPersonBlurrer:
         found: list[tuple[int, int, int, int]] = []
         bodies, weights = self._hog.detectMultiScale(small, winStride=(8, 8), padding=(8, 8), scale=1.05)
         found += [(b[0], b[1], b[2], b[3]) for b, w in zip(bodies, weights) if float(w) > 0.3]
-        for cascade in self._faces:
-            faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(24, 24))
-            found += [(f[0], f[1], f[2], f[3]) for f in faces]
+        self._faces.setInputSize((small.shape[1], small.shape[0]))
+        _, faces = self._faces.detect(small)
+        if faces is not None:
+            found += [(int(x), int(y), int(w), int(h)) for x, y, w, h in faces[:, :4].tolist()]
+        profiles = self._profile_faces.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5, minSize=(24, 24))
+        found += [(f[0], f[1], f[2], f[3]) for f in profiles]
 
         boxes = []
         for x, y, w, h in found:
